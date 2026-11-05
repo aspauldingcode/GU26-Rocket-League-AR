@@ -3,7 +3,7 @@
 
 Run it from the repository's root:
 
-  python3 .claude/skills/new-demo/scaffold.py --name Garden --id garden --title "Garden" \\
+  python3 Tools/new-demo/scaffold.py --name Garden --id garden --title "Garden" \\
       --description "Grow a garden on your table." --tagline "A garden on your table" \\
       --icon palette --tint 0.30,0.60,0.35 --sixdof On --passthrough On --hands On --scan-surfaces
 

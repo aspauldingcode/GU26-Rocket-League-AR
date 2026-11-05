@@ -9,6 +9,10 @@ A demo is one folder, `Assets/_Project/Demos/<Name>/`, that reaches Core through
 joins the app through its `DemoSetup`. Your job is to turn the person's idea into that folder, keep
 the idea within the project's design rules, and leave it compiling with its tests passing.
 
+Work from the root of a CardboardXR clone. Every path below is relative to it, wherever this file
+is installed. The script and templates are always used from the clone's `Tools/new-demo`, so they
+match the code.
+
 ## 1. Read before planning
 
 - Read all of `ADDING_A_DEMO.md`. It's the contract: the folder, what Core provides, the pinch
@@ -77,7 +81,7 @@ added line in that shared file.
 From the repository's root:
 
 ```sh
-python3 .claude/skills/new-demo/scaffold.py --name Garden --id garden --title "Garden" \
+python3 Tools/new-demo/scaffold.py --name Garden --id garden --title "Garden" \
     --description "..." --tagline "..." --icon palette --tint 0.30,0.60,0.35 \
     --sixdof On --passthrough On --hands Any --scan-surfaces
 ```

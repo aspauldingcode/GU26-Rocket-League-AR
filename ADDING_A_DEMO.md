@@ -5,9 +5,13 @@ and settings panel running. Core switches on what the demo asks for when it open
 back when it closes. A demo reaches Core through one object, `CoreServices`, and lives in a single
 folder. It doesn't edit any shared file to join the app.
 
-With [Claude Code](https://claude.com/claude-code), run `/new-demo` in this repository and describe
-your idea. The skill turns the description into the folder below, checks the idea against the
-[design rules](#design-rules), and builds it. Making a demo by hand works the same way.
+Make one by hand with this guide, or have a coding agent make it with the skill in
+[Tools/new-demo](Tools/new-demo). You describe the idea, and the agent:
+- turns it into the folder below;
+- checks it against the [design rules](#design-rules);
+- builds it.
+
+[Using a coding agent](#using-a-coding-agent) explains how to set the skill up.
 
 ## The folder
 
@@ -177,3 +181,33 @@ Check:
 - The log has the demo's `[<Name>]` lines and no exceptions, and `[Frames]` stays near the target.
 - Test on one phone for most changes. Test on both Android and iOS if the demo touches the camera,
   AR, video decoding, native code or the frame rate.
+
+## Using a coding agent
+
+[Tools/new-demo](Tools/new-demo) holds a skill for coding agents. The project doesn't install it
+into any agent; you set it up in yours. The folder has:
+
+- **`SKILL.md`**: the steps the agent follows, from questions about the idea to a checked build. It
+  uses the Agent Skills format, a folder with a `SKILL.md` whose header names the skill and says
+  when to use it.
+- **`scaffold.py`**: makes a demo's folder from `templates/`. It needs only Python 3, and you can
+  run it yourself: `python3 Tools/new-demo/scaffold.py --help`.
+
+How you set it up depends on the agent:
+
+- **An agent that loads skills from a folder:** link `Tools/new-demo` into the folder it loads
+  skills from, so the skill stays up to date with your clone. For Claude Code, that folder is
+  `~/.claude/skills/`. From the repository's root:
+
+  ```sh
+  mkdir -p ~/.claude/skills && ln -s "$PWD/Tools/new-demo" ~/.claude/skills/new-demo
+  ```
+
+  Other agents keep skills in their own folder, so see their documentation. Once it's linked, ask
+  for a new demo, or start the skill by name (`/new-demo` in Claude Code).
+- **Any other agent:** name the file in your request, for example "Follow
+  Tools/new-demo/SKILL.md to make a demo where you grow a garden on your table". Or add a line
+  like that to the instructions file your agent reads.
+
+Wherever it's installed, the skill works only inside a clone of this repository. It runs
+`scaffold.py` and reads the templates from the clone's `Tools/new-demo`.
