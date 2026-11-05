@@ -117,6 +117,7 @@ phone's home screen. The app logs the options it received at startup (`[Stereo] 
 | `pinchStudy 1` | A prompted run that logs pinch measurements, for tuning pinch detection |
 | `uiScale N` | Size of the Material UI in percent of Android XR's dp sizes (default 160, for phone viewers' lower resolution) |
 | `brightness N` | Screen brightness while the app is in front, in percent (default 90; 0 leaves it alone) |
+| `libraryRows N` | Rows of apps on each page of the app library, 1 to 4 (default 2). `1` shows paging with only a few demos |
 
 ## Using the app
 
@@ -125,7 +126,8 @@ phone's home screen. The app logs the options it received at startup (`[Stereo] 
   full-screen phone view; *Open settings* opens the settings panel.
 - **The app library**, above the settings panel, has an icon for the lobby and each demo: look at
   one to see what it is, and pinch or tap to open it, from anywhere, so you can go straight from one
-  demo to another. *Apps* on the settings panel shows and hides it. The lobby is a checkerboard room
+  demo to another. It shows six apps a page; with more, arrows on either side turn the page. *Apps*
+  on the settings panel shows and hides it. The lobby is a checkerboard room
   to start from, and opens with the library showing. As the app starts, the lobby is in 6DoF
   passthrough and first scans your room: look around at the floor and any tables until it says it's
   done (or tap *Skip*), so the demos start with tracking running and surfaces found. Each demo switches on what it needs (6DoF,

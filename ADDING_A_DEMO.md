@@ -45,6 +45,8 @@ On every build, `DemoScenes` finds each `DemoSetup` subclass and:
   unique, with a `Title`. If one is wrong, the build stops with a `[DemoScenes]` error that says why.
 - **Adds its entry to `DemoCatalog.asset`** if there isn't one with its `Id`. The entry is never
   overwritten, so a title or tint changed in the Inspector stays. `Order` only places a new entry.
+  The app library shows the entries in catalog order, six to a page, and adds pages as needed. A
+  new demo gets a tile with no UI work.
 - **Makes its scene** if `<Name>.unity` is missing, by calling `BuildScene` on a new, empty scene.
   That scene is never overwritten either. Delete it to have it made again.
 
