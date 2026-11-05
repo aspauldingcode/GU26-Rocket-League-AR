@@ -2,7 +2,7 @@ using CardboardXR.Demos.Rush;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace CardboardXR.Stereo.Tests
+namespace CardboardXR.Demos.Rush.Tests
 {
     public class RushRulesTests
     {

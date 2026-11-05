@@ -7,10 +7,13 @@ namespace CardboardXR.Stereo
     // Copies the app's tagged log lines ([Pose], [AR], [Tracking] and so on) and any errors to
     // Application.persistentDataPath/session.log, replaced at each launch with the previous one kept
     // as session-previous.log. Logcat on a Pixel only holds a minute or two, and misses everything
-    // while the phone is unplugged for a walk-around test. The path is logged at startup.
-    static class SessionLog
+    // while the phone is unplugged for a walk-around test. The path is logged at startup. Each demo's
+    // tag is added by DemoManager from the catalog (KeepTag), so a new demo needs no change here.
+    public static class SessionLog
     {
-        static readonly string[] k_Tags = { "[Pose]", "[AR]", "[Room]", "[Anchor]", "[Hands]", "[Pinch]", "[Perf]", "[Passthrough]", "[Tracking]", "[Gaze]", "[Hitch]", "[Frames]", "[Stereo]", "[Viewer]", "[Demos]", "[Video]", "[Paint]", "[Rush]", "[Portal]", "[Settings]", "[Light]", "[Thermal]" };
+        // Core's tags, then each demo's (KeepTag). Replaced whole, never changed in place, since lines
+        // arrive on any thread.
+        static volatile string[] s_Tags = { "[Pose]", "[AR]", "[Room]", "[Anchor]", "[Hands]", "[Pinch]", "[Perf]", "[Passthrough]", "[Tracking]", "[Gaze]", "[Hitch]", "[Frames]", "[Stereo]", "[Viewer]", "[Demos]", "[Settings]", "[Light]", "[Thermal]" };
         // Unity's own warnings when job scratch memory outlives four frames, which the hand models on
         // the CPU cause whenever a run takes longer than that (on a Pixel 9 Pro at 60 Hz, most runs):
         // the memory is freed late, not lost. Written every time, they buried the log, three lines per
@@ -119,9 +122,27 @@ namespace CardboardXR.Stereo
             return text.Substring(0, end).Replace('\n', ' ').Trim();
         }
 
-        static bool IsTagged(string message)
+        // Keeps lines that start with tag, such as "[Portal]", from now on.
+        public static void KeepTag(string tag)
         {
-            foreach (var tag in k_Tags)
+            if (string.IsNullOrEmpty(tag))
+                return;
+            lock (s_Lock)
+            {
+                var tags = s_Tags;
+                if (Array.IndexOf(tags, tag) >= 0)
+                    return;
+                var more = new string[tags.Length + 1];
+                tags.CopyTo(more, 0);
+                more[tags.Length] = tag;
+                s_Tags = more;
+            }
+        }
+
+        // Whether a line that isn't a warning or error is kept.
+        public static bool IsTagged(string message)
+        {
+            foreach (var tag in s_Tags)
             {
                 if (message.StartsWith(tag, StringComparison.Ordinal))
                     return true;

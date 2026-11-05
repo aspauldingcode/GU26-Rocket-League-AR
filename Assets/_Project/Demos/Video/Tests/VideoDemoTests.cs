@@ -2,7 +2,7 @@ using CardboardXR.Demos.Video;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace CardboardXR.Stereo.Tests
+namespace CardboardXR.Demos.Video.Tests
 {
     public class VideoDemoTests
     {

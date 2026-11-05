@@ -159,7 +159,12 @@ namespace ProjectBootstrap
         internal static string[] BuildScenes()
         {
             MaterialAssets.Ensure();
-            DemoScenes.EnsureAll();
+            if (!DemoScenes.EnsureAll())
+            {
+                Debug.LogError("[StereoBuilder] A demo's setup is wrong (see the [DemoScenes] errors above).");
+                EditorApplication.Exit(1);
+                return new[] { CoreScene };
+            }
             var catalog = BuildCoreScene();
             if (catalog == null)
                 return new[] { CoreScene };

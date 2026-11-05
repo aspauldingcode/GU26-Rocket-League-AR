@@ -41,6 +41,16 @@ namespace CardboardXR.Demos
         // A demo (or the lobby, null) finished loading.
         public event System.Action<DemoCatalog.Entry> Loaded;
 
+        // Each demo's own log lines ([Video] and so on: its scene's name) go to the session log too,
+        // so a new demo's do without listing its tag anywhere.
+        void Awake()
+        {
+            if (m_Catalog == null)
+                return;
+            foreach (var entry in m_Catalog.Demos)
+                SessionLog.KeepTag(entry.LogTag);
+        }
+
         // A frame after Core's own Start, so the launch options for 6DoF and passthrough have applied
         // before a demo overrides them.
         IEnumerator Start()

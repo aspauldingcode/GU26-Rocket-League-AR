@@ -3,7 +3,7 @@ using CardboardXR.Demos.Paint;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace CardboardXR.Stereo.Tests
+namespace CardboardXR.Demos.Paint.Tests
 {
     public class StrokeMeshTests
     {

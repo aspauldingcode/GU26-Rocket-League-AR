@@ -25,6 +25,13 @@ namespace CardboardXR.Demos
             [Tooltip("The scene's path, such as Assets/_Project/Demos/Video/Video.unity.")]
             public string ScenePath;
             public DemoRequirements Requirements;
+
+            // What the demo's log lines start with, for the session log to keep them: its scene's
+            // name in brackets, such as [Video].
+            public string LogTag => LogTagFor(ScenePath);
+
+            public static string LogTagFor(string scenePath) =>
+                string.IsNullOrEmpty(scenePath) ? null : $"[{System.IO.Path.GetFileNameWithoutExtension(scenePath)}]";
         }
 
         [Tooltip("The lobby scene's path.")]

@@ -2,7 +2,7 @@ using CardboardXR.Demos.Portal;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace CardboardXR.Stereo.Tests
+namespace CardboardXR.Demos.Portal.Tests
 {
     public class PortalCrossingTests
     {

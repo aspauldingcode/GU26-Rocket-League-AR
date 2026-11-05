@@ -215,7 +215,8 @@ trim it. In passthrough both eyes see the same image, so one eye is the whole ex
 
 EditMode tests cover the parts that don't need a device: lens distortion and viewer QR profiles,
 sensor and pose fusion, the camera clock, hand geometry, pinch detection, depth sampling and palm
-calibration, floor picking, passthrough, gaze pointing and anchoring.
+calibration, floor picking, passthrough, gaze pointing and anchoring. Each demo's own tests are in
+its folder, under `Tests`.
 
 ## How it's built
 
@@ -238,14 +239,17 @@ Code is in `Assets/_Project/Scripts`, one assembly per area:
 **The app is one Core scene with the lobby and demos loaded on top.** Core holds everything that
 has to keep running across demos: the rig, head tracking, AR, hands, gaze and the settings panel. The lobby
 and each demo are scenes loaded additively and unloaded on leaving; `DemoManager` switches between
-them and demo scripts reach Core through `CoreServices`. A demo's scene, assets and scripts live in
-`Assets/_Project/Demos/<Name>/`, and its entry in `DemoCatalog.asset` names its scene and what it
-needs.
+them and demo scripts reach Core through `CoreServices`. Everything a demo has lives in
+`Assets/_Project/Demos/<Name>/`: its scene, assets, scripts and tests, and a `DemoSetup` that
+gives its entry in `DemoCatalog.asset` (its scene and what it needs) and makes its starter scene.
+[ADDING_A_DEMO.md](ADDING_A_DEMO.md) explains how to make one. In
+[Claude Code](https://claude.com/claude-code), `/new-demo` makes one from a description.
 
 **Core is generated**, not edited by hand: `Assets/Editor/ProjectBootstrap/StereoBuilder.cs`
 builds `Core.unity` and its materials on every build, so changes made to them in the Editor are
-lost. **The lobby and demos are edited by hand**: `DemoScenes.cs` makes a starter scene or catalog
-entry only when it's missing, and never overwrites one. `ProjectSetup.Apply` sets the player and XR settings for both platforms.
+lost. **The lobby and demos are edited by hand**: `DemoScenes.cs` makes the lobby and the catalog,
+and each demo's setup makes its starter scene and catalog entry. Each is made only when it's
+missing, and none is ever overwritten. `ProjectSetup.Apply` sets the player and XR settings for both platforms.
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for current limitations and
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for ported code and models.
