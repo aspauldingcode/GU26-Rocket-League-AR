@@ -244,8 +244,8 @@ and each demo are scenes loaded additively and unloaded on leaving; `DemoManager
 them and demo scripts reach Core through `CoreServices`. Everything a demo has lives in
 `Assets/_Project/Demos/<Name>/`: its scene, assets, scripts and tests, and a `DemoSetup` that
 gives its entry in `DemoCatalog.asset` (its scene and what it needs) and makes its starter scene.
-[ADDING_A_DEMO.md](ADDING_A_DEMO.md) explains how to make one, either by hand or with a coding agent
-and the skill in `Tools/new-demo`.
+[ADDING_A_DEMO.md](ADDING_A_DEMO.md) explains how to make one for your own build, either by hand or
+with a coding agent and the skill in `Tools/new-demo`. This repository doesn't take new demos.
 
 **Core is generated**, not edited by hand: `Assets/Editor/ProjectBootstrap/StereoBuilder.cs`
 builds `Core.unity` and its materials on every build, so changes made to them in the Editor are

@@ -13,6 +13,9 @@ Make one by hand with this guide, or have a coding agent make it with the skill 
 
 [Using a coding agent](#using-a-coding-agent) explains how to set the skill up.
 
+The demos you make are for your own build. This repository doesn't take new demos into the app (see
+[Your own build](#your-own-build)).
+
 ## The folder
 
 ```
@@ -183,6 +186,24 @@ Check:
 - The log has the demo's `[<Name>]` lines and no exceptions, and `[Frames]` stays near the target.
 - Test on one phone for most changes. Test on both Android and iOS if the demo touches the camera,
   AR, video decoding, native code or the frame rate.
+
+## Your own build
+
+Your demos stay in your own build. Pull requests that add demos to this repository won't be merged.
+Keep your demos in a fork or your own clone, and build and install it as
+[the README](README.md#build-and-run) describes.
+
+- **Use your own app id.** Set `CARDBOARDXR_BUNDLE_ID` to an id of your own, such as
+  `com.example.cardboardxr`. Then your build installs next to this project's released app instead of
+  replacing it. On iOS you need your own id anyway, since an id belongs to the Apple team that first
+  signed it.
+- **Updating from this repository.** Your demos are in their own folders, so pulling new changes
+  rarely conflicts. `DemoCatalog.asset` is the one file that can. Take this repository's version and
+  build, and your demos' entries are added back from their setups. Any changes you made to those
+  entries by hand need making again.
+- **Sharing your build.** You can share your fork or your builds under the terms of the Apache 2.0
+  [license](LICENSE): include the license and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and
+  say what you changed.
 
 ## Using a coding agent
 
