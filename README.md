@@ -15,6 +15,9 @@ Tested on a **Pixel 9 Pro** (Android, ARCore) and an **iPhone 15 Pro** (iOS, ARK
 
 **Print the viewer**: the 3D print files for a mobile VR viewer made for modern smartphones are on
 MakerWorld: [Mobile VR viewer for modern smartphones](https://makerworld.com/en/models/3511377-mobile-vr-viewer-for-modern-smartphones).
+To make the viewer's phone door fit your phone, enter its dimensions in the
+[phone door generator](https://brenpoly.github.io/CardboardXR/door-generator/). It makes the 3MF and
+STL files in your browser.
 
 ## Interactive pages
 

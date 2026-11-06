@@ -50,6 +50,18 @@ The photos in `docs/photos/`, used by the headset timeline page, are from Wikime
 keeps its own license (CC BY, CC BY-SA, CC0 or public domain), and the page credits its author and
 license and links to its Commons page beside it.
 
+## Phone door generator libraries
+
+The phone door generator page bundles three libraries, unmodified, in `docs/door-generator/vendor/`. Their
+licenses are in `vendor/LICENSES.txt` beside them.
+
+- `manifold.js` and `manifold.wasm`: Manifold 3.5.4 (https://github.com/elalish/manifold), for the
+  door's geometry. Licensed under the Apache License 2.0.
+- `three.module.js`, `three.core.js` and `OrbitControls.js`: three.js r187 (https://threejs.org), for
+  the 3D preview. MIT License.
+- `fflate.js`: fflate 0.8.3 (https://github.com/101arrowz/fflate), for writing the 3MF and zip files.
+  MIT License.
+
 ## Roboto and Material Icons
 
 `Assets/_Project/UI/Fonts/Roboto-Regular.ttf` and `Roboto-Medium.ttf` are from
