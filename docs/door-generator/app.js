@@ -149,8 +149,14 @@ let changed = false;
 const showChanged = () => setStatus(model.visible ? 'The numbers have changed. Click Generate models to update the preview and downloads.'
   : 'Click Generate models to build the door.', 'warn');
 function markChanged() { changed = true; enableDownloads(false); showChanged(); }
-// "Custom phone" starts again from empty fields with no door. Editing a field, or filling the form from an agent's
-// reply, selects a hidden copy of that menu entry, so picking "Custom phone" afterwards still fires a change.
+// Editing a field, or filling the form from an agent's reply, selects a greyed-out "Your own numbers" entry that is
+// only in the menu while it's selected. So every real entry, "Custom phone" included, still fires a change when picked.
+const presetEl = $('#preset');
+function showEdited() {
+  if (!presetEl.querySelector('option[value=edited]')) { const o = new Option('Your own numbers', 'edited'); o.disabled = true; presetEl.add(o); }
+  presetEl.value = 'edited';
+}
+// "Custom phone" starts again from empty fields with no door.
 function clearAll() {
   ++seq; changed = false; notes = []; lastFiles = null;            // ++seq drops a door that is still being built
   writeForm({ camera: {} });                                       // clearance goes back to its 1.5 mm default
@@ -197,8 +203,9 @@ function download(f) {
 
 // ------------------------------------------------------------------ wiring
 $('#form').addEventListener('submit', (e) => { e.preventDefault(); generate(); });   // the button, or Enter in a field
-document.querySelectorAll('#form input').forEach((el) => el.addEventListener('input', () => { $('#preset').value = 'edited'; markChanged(); }));
-$('#preset').addEventListener('change', (e) => {
+document.querySelectorAll('#form input').forEach((el) => el.addEventListener('input', () => { showEdited(); markChanged(); }));
+presetEl.addEventListener('change', (e) => {
+  presetEl.querySelector('option[value=edited]')?.remove();
   if (e.target.value === 'custom') { clearAll(); return; }
   const p = PRESETS[e.target.value]; if (p) { notes = []; writeForm(p); markChanged(); }
 });
@@ -211,7 +218,7 @@ $('#copy-prompt').addEventListener('click', async () => {
 $('#apply-json').addEventListener('click', () => {
   try {
     const { spec, notes: n } = importJSON($('#json-in').value);
-    writeForm(spec); $('#preset').value = 'edited';
+    writeForm(spec); showEdited();
     notes = n ? [`Agent notes: ${n}`] : [];
     $('#json-status').textContent = 'Filled in the form. Check every value against the drawing, then click Generate models.';
     $('#json-status').className = 'hint ok';
