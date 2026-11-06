@@ -146,8 +146,19 @@ let notes = [];
 // The door is only rebuilt when the user clicks Generate models. Until then, after any change to the numbers,
 // the preview shows the last door and its downloads are off, so nobody downloads a door that doesn't match the form.
 let changed = false;
-const showChanged = () => setStatus('The numbers have changed. Click Generate models to update the preview and downloads.', 'warn');
+const showChanged = () => setStatus(model.visible ? 'The numbers have changed. Click Generate models to update the preview and downloads.'
+  : 'Click Generate models to build the door.', 'warn');
 function markChanged() { changed = true; enableDownloads(false); showChanged(); }
+// "Custom phone" starts again from empty fields with no door. Editing a field, or filling the form from an agent's
+// reply, selects a hidden copy of that menu entry, so picking "Custom phone" afterwards still fires a change.
+function clearAll() {
+  ++seq; changed = false; notes = []; lastFiles = null;            // ++seq drops a door that is still being built
+  writeForm({ camera: {} });                                       // clearance goes back to its 1.5 mm default
+  model.visible = false; group.clear(); phoneGroup.clear();
+  enableDownloads(false); showMessages([], [], []);
+  setStatus('Enter your phone\'s numbers, then click Generate models.');
+  $('#json-status').textContent = '';
+}
 function generate() {
   changed = false;
   const spec = readForm(); lastSpec = spec;
@@ -186,8 +197,11 @@ function download(f) {
 
 // ------------------------------------------------------------------ wiring
 $('#form').addEventListener('submit', (e) => { e.preventDefault(); generate(); });   // the button, or Enter in a field
-document.querySelectorAll('#form input').forEach((el) => el.addEventListener('input', () => { $('#preset').value = 'custom'; markChanged(); }));
-$('#preset').addEventListener('change', (e) => { const p = PRESETS[e.target.value]; if (p) { notes = []; writeForm(p); markChanged(); } });
+document.querySelectorAll('#form input').forEach((el) => el.addEventListener('input', () => { $('#preset').value = 'edited'; markChanged(); }));
+$('#preset').addEventListener('change', (e) => {
+  if (e.target.value === 'custom') { clearAll(); return; }
+  const p = PRESETS[e.target.value]; if (p) { notes = []; writeForm(p); markChanged(); }
+});
 $('#prompt-text').value = PROMPT;
 $('#copy-prompt').addEventListener('click', async () => {
   // Without clipboard access, select the prompt so the user can copy it by hand.
@@ -197,7 +211,7 @@ $('#copy-prompt').addEventListener('click', async () => {
 $('#apply-json').addEventListener('click', () => {
   try {
     const { spec, notes: n } = importJSON($('#json-in').value);
-    writeForm(spec); $('#preset').value = 'custom';
+    writeForm(spec); $('#preset').value = 'edited';
     notes = n ? [`Agent notes: ${n}`] : [];
     $('#json-status').textContent = 'Filled in the form. Check every value against the drawing, then click Generate models.';
     $('#json-status').className = 'hint ok';
