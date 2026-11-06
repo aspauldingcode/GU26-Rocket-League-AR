@@ -21,7 +21,7 @@ STL files in your browser.
 
 ## Interactive pages
 
-Two interactive pages go with the project. Click an image to open it.
+Three interactive pages go with the project. Click an image to open it.
 
 **From Cardboard to VR glasses**: every headset since 2013, by launch price or form factor, and
 where phone VR fell away.
@@ -32,6 +32,11 @@ where phone VR fell away.
 together, layer by layer.
 
 [![The iPhone build's architecture: sensors and camera through ARKit and the AI runtime to head, hand and room tracking, rendering and heat control](docs/images/architecture.png)](https://brenpoly.github.io/CardboardXR/iphone-architecture.html)
+
+**Phone door generator**: enter your phone's dimensions and download a phone door for the
+3D-printed viewer that fits it, as 3MF or STL files.
+
+[![The phone door generator: a form for the phone's dimensions beside a 3D preview of the door with its orange TPU corner locators](docs/images/door-generator.png)](https://brenpoly.github.io/CardboardXR/door-generator/)
 
 The pages are in `docs/`, served by GitHub Pages.
 
