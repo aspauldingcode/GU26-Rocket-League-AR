@@ -33,7 +33,7 @@ function writeForm(s) {
 }
 
 // ------------------------------------------------------------------ AI agent prompt + JSON import
-const PROMPT = `Read the attached dimensional drawing of a phone (for iPhones: the device's page in Apple's "Accessory Design Guidelines" PDF) and reply with ONLY this JSON, every value in millimetres:
+const PROMPT = `Read the attached dimensional drawing of a phone (for iPhones: the device's drawing from Apple's accessory dimensional drawings) and reply with ONLY this JSON, every value in millimetres:
 
 {
   "name": "<model name>",
@@ -143,7 +143,13 @@ function showMessages(errors, warnings, extra = []) {
 function enableDownloads(on) { for (const b of document.querySelectorAll('.dl')) b.disabled = !on; }
 
 let notes = [];
+// The door is only rebuilt when the user clicks Generate models. Until then, after any change to the numbers,
+// the preview shows the last door and its downloads are off, so nobody downloads a door that doesn't match the form.
+let changed = false;
+const showChanged = () => setStatus('The numbers have changed. Click Generate models to update the preview and downloads.', 'warn');
+function markChanged() { changed = true; enableDownloads(false); showChanged(); }
 function generate() {
+  changed = false;
   const spec = readForm(); lastSpec = spec;
   const chk = check(spec);
   showMessages(chk.errors, chk.warnings, notes);
@@ -169,6 +175,7 @@ worker.onmessage = (e) => {
   }
   lastFiles = r.files;
   showMessages(r.check.errors, r.check.warnings, notes);
+  if (changed) { showChanged(); return; }             // the numbers changed while this door was being built
   setStatus(`Door ready: ${r.stats.holes} vent holes, built in ${(r.stats.ms / 1000).toFixed(1)} s.`, 'ok');
   enableDownloads(true);
 };
@@ -178,24 +185,23 @@ function download(f) {
 }
 
 // ------------------------------------------------------------------ wiring
-let timer = null;
-const schedule = () => { clearTimeout(timer); timer = setTimeout(generate, 450); };
-document.querySelectorAll('#form input').forEach((el) => el.addEventListener('input', () => { $('#preset').value = 'custom'; schedule(); }));
-$('#preset').addEventListener('change', (e) => { const p = PRESETS[e.target.value]; if (p) { notes = []; writeForm(p); generate(); } });
+$('#form').addEventListener('submit', (e) => { e.preventDefault(); generate(); });   // the button, or Enter in a field
+document.querySelectorAll('#form input').forEach((el) => el.addEventListener('input', () => { $('#preset').value = 'custom'; markChanged(); }));
+$('#preset').addEventListener('change', (e) => { const p = PRESETS[e.target.value]; if (p) { notes = []; writeForm(p); markChanged(); } });
+$('#prompt-text').value = PROMPT;
 $('#copy-prompt').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(PROMPT); $('#copy-prompt').textContent = 'Copied'; } catch { $('#prompt-text').hidden = false; }
+  // Without clipboard access, select the prompt so the user can copy it by hand.
+  try { await navigator.clipboard.writeText(PROMPT); $('#copy-prompt').textContent = 'Copied'; } catch { $('#prompt-text').select(); }
   setTimeout(() => ($('#copy-prompt').textContent = 'Copy the prompt'), 1800);
 });
-$('#prompt-text').textContent = PROMPT;
-$('#show-prompt').addEventListener('click', () => { $('#prompt-text').hidden = !$('#prompt-text').hidden; });
 $('#apply-json').addEventListener('click', () => {
   try {
     const { spec, notes: n } = importJSON($('#json-in').value);
     writeForm(spec); $('#preset').value = 'custom';
     notes = n ? [`Agent notes: ${n}`] : [];
-    $('#json-status').textContent = 'Filled in the form. Check every value against the drawing before printing.';
+    $('#json-status').textContent = 'Filled in the form. Check every value against the drawing, then click Generate models.';
     $('#json-status').className = 'hint ok';
-    generate();
+    markChanged();
   } catch (err) { $('#json-status').textContent = 'Could not read that: ' + err.message; $('#json-status').className = 'hint bad'; }
 });
 $('#dl-3mf').addEventListener('click', () => lastFiles && download(lastFiles.threeMF));
