@@ -10,15 +10,16 @@ namespace ProjectBootstrap
     // Client API, headless-safe.
     public static class PackageInstaller
     {
-        // Versions are the ones Unity 6000.6.0f1 recommends in its editor manifest.
+        // The versions in Packages/manifest.json: those Unity 6000.6.8f1 recommends, except AR Foundation
+        // 6.7.1, whose ARKit plug-in fixes passthrough turned 90 degrees in apps built with the iOS 27 SDK.
         static readonly string[] PackagesToAdd =
         {
-            "com.unity.xr.arfoundation@6.6.2",
-            "com.unity.xr.arcore@6.6.2",
+            "com.unity.xr.arfoundation@6.7.1",
+            "com.unity.xr.arcore@6.7.1",
             "com.unity.xr.management@4.7.0",
-            "com.unity.xr.interaction.toolkit@3.6.0",
+            "com.unity.xr.interaction.toolkit@3.6.1",
             "com.unity.xr.hands@1.9.0",
-            "com.unity.inputsystem@1.20.0",
+            "com.unity.inputsystem@1.20.1",
             "com.unity.ai.inference@2.6.1",
         };
 

@@ -12,7 +12,7 @@
 set -euo pipefail
 VERSION=${1:?usage: zsh Tools/release_android.sh 1.2.3}
 REPO=${CARDBOARDXR_REPO:-brenpoly/CardboardXR}
-U=${UNITY:-/Applications/Unity/Hub/Editor/6000.6.0f1/Unity.app/Contents/MacOS/Unity}
+U=${UNITY:-/Applications/Unity/Hub/Editor/6000.6.8f1/Unity.app/Contents/MacOS/Unity}
 KEYSTORE=${CARDBOARDXR_KEYSTORE:-$HOME/.cardboardxr/release.keystore}
 WORK=${TMPDIR:-/tmp}/cardboardxr-release
 TAG=v$VERSION

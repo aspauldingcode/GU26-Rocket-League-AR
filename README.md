@@ -49,7 +49,7 @@ source, below.
 
 ## Requirements
 
-- Unity **6000.6.0f1** with the Android and iOS build modules. The scripts expect it where Unity
+- Unity **6000.6.8f1** with the Android and iOS build modules. The scripts expect it where Unity
   Hub puts it; for another location, set `UNITY=/path/to/Unity.app/Contents/MacOS/Unity`
 - For Android: `adb` on your `PATH` (it's in `~/Library/Android/sdk/platform-tools`)
 - For iOS: full Xcode, signed into an Apple ID (a free personal team is enough)
@@ -219,7 +219,7 @@ trim it. In passthrough both eyes see the same image, so one eye is the whole ex
 ## Tests
 
 ```sh
-/Applications/Unity/Hub/Editor/6000.6.0f1/Unity.app/Contents/MacOS/Unity -batchmode \
+/Applications/Unity/Hub/Editor/6000.6.8f1/Unity.app/Contents/MacOS/Unity -batchmode \
     -projectPath . -runTests -testPlatform EditMode -testResults results.xml
 ```
 
