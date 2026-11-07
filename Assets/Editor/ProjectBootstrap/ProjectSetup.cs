@@ -30,7 +30,7 @@ namespace ProjectBootstrap
 
             PlayerSettings.companyName = "brenpoly";
             PlayerSettings.productName = "CardboardXR";
-            PlayerSettings.SetApplicationIdentifier(android, "com.brenpoly.cardboardxr");
+            PlayerSettings.SetApplicationIdentifier(android, "com.rocketleague.gurlar");
 
             PlayerSettings.SetScriptingBackend(android, ScriptingImplementation.IL2CPP);
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
@@ -57,7 +57,7 @@ namespace ProjectBootstrap
             PlayerSettings.enableFrameTimingStats = true;
 
             var ios = NamedBuildTarget.iOS;
-            PlayerSettings.SetApplicationIdentifier(ios, "com.brenpoly.cardboardxr");
+            PlayerSettings.SetApplicationIdentifier(ios, "com.rocketleague.gurlar");
             PlayerSettings.SetScriptingBackend(ios, ScriptingImplementation.IL2CPP);
             // AR Foundation 6 needs iOS 12; 14 is where the LiDAR depth on the iPhone Pro arrived.
             PlayerSettings.iOS.targetOSVersionString = "14.0";
@@ -266,7 +266,9 @@ namespace ProjectBootstrap
                 ARCoreSettings.currentSettings = arcore;
             }
 
-            arcore.requirement = ARCoreSettings.Requirement.Required;
+            // Optional so the APK still installs on Android Emulator / devices without Play Services
+            // for AR; 6DoF and passthrough need ARCore at runtime, 3DoF (--ei dof 3) does not.
+            arcore.requirement = ARCoreSettings.Requirement.Optional;
             // Depth helps place hands in 3D but not every ARCore phone has it.
             arcore.depth = ARCoreSettings.Requirement.Optional;
             EditorUtility.SetDirty(arcore);

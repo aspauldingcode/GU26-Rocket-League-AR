@@ -6,14 +6,17 @@
 /[Bb]uilds/
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
-/[Mm]emoryCaptures/
+/[Mm]emory[Cc]aptures/
 /[Rr]ecordings/
+*.log
 
 # Rider plugin, auto-generated
 /[Aa]ssets/Plugins/Editor/JetBrains*
+*.DotSettings.user
 
 # IDE and tool caches
 .vs/
+.vsconfig
 .vscode/
 .idea/
 .gradle/
@@ -44,10 +47,15 @@ ExportedObj/
 # Crash reports
 sysinfo.txt
 mono_crash.*
+.dirstamp
+tmpinst-dir.stamp
 
-# Builds
+# Builds / player leftovers (large local bloat)
+/*_BackUpThisFolder_ButDontShipItWithYourGame/
+/*_BurstDebugInformation_DoNotShip/
 *.apk
 *.aab
+*.obb
 *.unitypackage
 *.unitypackage.meta
 *.app
@@ -65,6 +73,12 @@ crashlytics-build.properties
 
 # Unity 6 build tool temp
 /.utmp/
+
+# Unity 6 Build Profiles: auto-created when the Build Profiles window opens.
+# Default Android profile uses a trademark character (Android™) that breaks
+# tools and dirties git; Tools/*_build_and_run.sh does not use these assets.
+/[Aa]ssets/[Ss]ettings/[Bb]uild [Pp]rofiles/
+/[Aa]ssets/[Ss]ettings/[Bb]uild [Pp]rofiles.meta
 
 # Videos for local builds only (Tools/make_videos.sh copies them in); only the placeholders are in git
 /[Aa]ssets/StreamingAssets/*.mp4

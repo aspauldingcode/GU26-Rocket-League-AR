@@ -51,7 +51,9 @@ source, below.
 
 - Unity **6000.6.8f1** with the Android and iOS build modules. The scripts expect it where Unity
   Hub puts it; for another location, set `UNITY=/path/to/Unity.app/Contents/MacOS/Unity`
-- For Android: `adb` on your `PATH` (it's in `~/Library/Android/sdk/platform-tools`)
+- For Android: `adb` on your `PATH` (it's in `~/Library/Android/sdk/platform-tools`). For the
+  emulator path you also need the Android SDK Emulator and an AVD (arm64-v8a Google APIs / Play on
+  Apple Silicon; x86_64 Google APIs on Intel)
 - For iOS: full Xcode, signed into an Apple ID (a free personal team is enough)
 
 Close the project in the Editor before running any script: they build in batch mode, which needs
@@ -59,30 +61,60 @@ the project lock.
 
 ## Build and run
 
-Each script builds the app, installs it, launches it and prints the start of the
-session log.
+Use the Makefile (wraps the scripts in `Tools/`). Each target builds the app, installs it, launches
+it and prints the start of the session log.
 
 ```sh
-zsh Tools/build_and_run.sh                                   # Android
-zsh Tools/ios_build_and_run.sh                               # iOS
-zsh Tools/ios_build_and_run.sh --xcode                       # iOS, reusing the last Unity export
-zsh Tools/ios_launch.sh                                      # iOS, relaunch without rebuilding
+make install                                                 # iPhone (default)
+make build                                                   # same as install
+make ios-xcode                                               # iOS, always reuse last Unity export
+make ios-fresh                                               # force Unity re-export (close Editor)
+make launch                                                  # iOS, relaunch without rebuilding
+make android                                                 # Android device (needs Unity closed)
+make android-emu                                             # Android Emulator (needs Unity closed)
+make help                                                    # all targets
 ```
 
-Builds are release builds. For a development build (debuggable, with the Unity Profiler able to
-connect over the local network), set `CARDBOARDXR_DEVELOPMENT=1`. The app id is
-`com.brenpoly.cardboardxr`; an iOS bundle id belongs to the Apple team that first signed it, so to
-build for your own iPhone pick your own, the same way for every script:
+### Android Emulator (friends / CI machines)
 
 ```sh
-CARDBOARDXR_BUNDLE_ID=com.example.cardboardxr zsh Tools/ios_build_and_run.sh
+# Create an AVD in Android Studio Device Manager if you do not have one yet:
+#   Apple Silicon → arm64-v8a, API 34+, Google APIs or Google Play
+#   Intel / older → x86_64, Google APIs
+make android-emu                                             # boots AVD if needed; default --ei dof 3
+make android-emu ANDROID_AVD=WawonaEmulator_arm64-v8a_API36
+make android-emu ARGS='--ei demo 0 --ei dof 3'
 ```
 
-The Android script also runs the EditMode tests first. On iOS, the first install needs Developer
-Mode on the phone (Settings > Privacy & Security, which only appears after a first install attempt)
-and trusting the developer (Settings > General > VPN & Device Management). The phone must be
-unlocked to launch; a build takes about five minutes, so if it auto-locks in the meantime, unlock
-it and run `ios_launch.sh`.
+`make android-emu` builds an APK with **ARM64 + x86_64**, installs on the emulator, and launches in
+**3DoF** by default (works without a camera). Full 6DoF / passthrough on emulator needs Google's
+[ARCore for Emulator](https://developers.google.com/ar/develop/java/emulator) package (or a Play
+system image with Play Services for AR). Close Unity before this target; batch mode needs the lock.
+
+If Unity is already open and `Builds/iOS` exists, `make install` skips the Unity export and only
+runs Xcode → install → launch. For a fresh export without quitting the Editor, use
+**CardboardXR → Build iOS Export (keep Editor open)**, then `make install`. `make ios-fresh` still
+needs the Editor closed (batchmode).
+
+Launch options and overrides:
+
+```sh
+make install ARGS='--ei dof 6 --ei passthrough 1'
+make install BUNDLE_ID=com.example.gurlar UDID=... TEAM=... DEVELOPMENT=1
+```
+
+Builds are release builds unless `DEVELOPMENT=1`. The app id is `com.rocketleague.gurlar`. The
+underlying scripts still work:
+
+```sh
+zsh Tools/ios_build_and_run.sh
+zsh Tools/build_and_run.sh
+```
+
+The Android path also runs the EditMode tests first. On iOS, the first install needs Developer Mode
+on the phone (Settings > Privacy & Security, which only appears after a first install attempt) and
+trusting the developer (Settings > General > VPN & Device Management). The phone must be unlocked to
+launch; if it auto-locks during a long build, unlock it and run `make launch`.
 
 ### Releases
 
@@ -96,8 +128,8 @@ says where the keystore and its password go.
 Development overrides, given the same way on both platforms after the script's own arguments:
 
 ```sh
-zsh Tools/build_and_run.sh --ei dof 3 --ei mono 1
-zsh Tools/ios_launch.sh --ei dof 3 --ei mono 1
+make android ARGS='--ei dof 3 --ei mono 1'
+make launch ARGS='--ei dof 3 --ei mono 1'
 ```
 
 On Android they're intent extras; on iOS they reach the app as environment variables
@@ -152,7 +184,7 @@ phone's home screen. The app logs the options it received at startup (`[Stereo] 
   small test clips are bundled. To bundle your own in local builds, put them in a `360` folder
   beside the project (or set `CARDBOARDXR_VIDEOS`): the build scripts copy them into
   `Assets/StreamingAssets`, which git ignores apart from the test clips. Or add your own to the app's `Videos` folder on the phone: on
-  Android `adb push video.mp4 /storage/emulated/0/Android/data/com.brenpoly.cardboardxr/files/Videos`;
+  Android `adb push video.mp4 /storage/emulated/0/Android/data/com.rocketleague.gurlar/files/Videos`;
   on iPhone, Finder's Files tab for the phone, then CardboardXR > Videos. Tags in the name set the
   format (`_360`, `_180`, `_sbs`, `_tb`, `_mono`). For Google Drive, put share links in
   `videos.txt` in that folder, one per line; each downloads on first play.
@@ -187,7 +219,7 @@ Every launch writes a session log on the phone, replacing the last one (which is
 `session-previous.log`). The scripts print its start; to read the whole thing:
 
 ```sh
-adb pull /storage/emulated/0/Android/data/com.brenpoly.cardboardxr/files/session.log   # Android
+adb pull /storage/emulated/0/Android/data/com.rocketleague.gurlar/files/session.log   # Android
 ```
 
 On iOS, `ios_launch.sh` copies it to `$TMPDIR/cardboardxr/ios-session.log`.
