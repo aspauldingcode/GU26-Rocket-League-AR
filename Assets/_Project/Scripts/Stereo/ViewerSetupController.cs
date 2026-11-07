@@ -18,6 +18,7 @@ namespace CardboardXR.Stereo
     {
         const string k_SavedViewerKey = "CardboardXR.ViewerUrl";
         const string k_ScanPrompt = "Point the camera at the QR code on your viewer.";
+        const string k_CastScanPrompt = "Point the camera at the QR on the laptop.";
         const float k_RetryDelaySeconds = 2.5f;
         const float k_ToastSeconds = 3f;
 
@@ -25,29 +26,44 @@ namespace CardboardXR.Stereo
         [SerializeField] ARSession m_Session;
         [SerializeField] ARCameraManager m_CameraManager;
         [SerializeField] ViewerQrScanner m_Scanner;
+        [SerializeField] WebRtcCastHost m_Cast;
 
         // The corner's settings button, and the menu it opens.
         GameObject m_SettingsButton;
         GameObject m_Menu;
         float m_MenuCloseTime;
         M3Button m_View;
+        M3Button m_Share;
         bool m_ShownMono;
         GameObject m_ScanPanel;
+        GameObject m_CastPanel;
         RawImage m_Preview;
+        RawImage m_CastQr;
+        TMP_Text m_CastRoom;
         AspectRatioFitter m_PreviewFitter;
         TMP_Text m_Status;
         TMP_Text m_Toast;
         GameObject m_Snackbar;
         float m_ToastHideTime;
         bool m_Resolving;
+        bool m_CastScanning;
         bool m_SessionWasEnabled;
         bool m_CameraWasEnabled;
+        Texture2D m_CastQrTexture;
 
         void Awake()
         {
             EnsureEventSystem();
+            if (m_Cast == null)
+            {
+                m_Cast = GetComponent<WebRtcCastHost>();
+                if (m_Cast == null)
+                    m_Cast = gameObject.AddComponent<WebRtcCastHost>();
+                m_Cast.Configure(m_Rig);
+            }
             BuildUi();
             ShowScanPanel(false);
+            ShowCastPanel(false);
             LoadSavedViewer();
         }
 
@@ -129,7 +145,55 @@ namespace CardboardXR.Stereo
         void ChooseSetViewer()
         {
             M3Fade.Hide(m_Menu);
+            m_CastScanning = false;
             SetScanning(true);
+        }
+
+        void ChooseShare()
+        {
+            M3Fade.Hide(m_Menu);
+            if (m_Cast != null && m_Cast.IsCasting)
+            {
+                ShowCastPanel(true);
+                ShowToast($"Sharing room {m_Cast.Room}");
+                return;
+            }
+
+            // Laptop shows the QR; the phone scans it and becomes the WebRTC host.
+            m_CastScanning = true;
+            SetScanning(true);
+            m_Status.text = k_CastScanPrompt;
+            ShowToast("Scan the QR on the laptop");
+        }
+
+        void ChooseStopShare()
+        {
+            if (m_Cast == null || !m_Cast.IsCasting)
+                return;
+            m_Cast.StopCast();
+            ShowCastPanel(false);
+            UpdateShareLabel();
+            ShowToast("Stopped sharing");
+        }
+
+        void ChooseRescanLaptop()
+        {
+            ChooseStopShare();
+            ChooseShare();
+        }
+
+        void RefreshCastStatus()
+        {
+            if (m_Cast == null || string.IsNullOrEmpty(m_Cast.Room))
+                return;
+            m_CastRoom.text = $"Room {m_Cast.Room}";
+            if (m_CastQr != null)
+            {
+                if (m_CastQrTexture != null)
+                    Destroy(m_CastQrTexture);
+                m_CastQrTexture = WebRtcCast.MakeQr(m_Cast.ViewerUrl);
+                m_CastQr.texture = m_CastQrTexture;
+            }
         }
 
         // The button says which view it would switch to, not which one it's in.
@@ -143,14 +207,39 @@ namespace CardboardXR.Stereo
             }
         }
 
+        void UpdateShareLabel()
+        {
+            if (m_Share == null || m_Cast == null)
+                return;
+            var on = m_Cast.IsCasting;
+            m_Share.Text = on ? "Cast status" : "Share view";
+            m_Share.Icon = on ? "cast_connected" : "cast";
+        }
+
         void ShowScanPanel(bool show)
         {
             m_ScanPanel.SetActive(show);
-            m_SettingsButton.SetActive(!show);
+            m_SettingsButton.SetActive(!show && (m_CastPanel == null || !m_CastPanel.activeSelf));
             M3Fade.Hide(m_Menu);
+            if (show)
+                ShowCastPanel(false);
+            else
+                m_CastScanning = false;
             m_Rig.enabled = !show;
-            m_Status.text = k_ScanPrompt;
+            m_Status.text = m_CastScanning ? k_CastScanPrompt : k_ScanPrompt;
         }
+
+        void ShowCastPanel(bool show)
+        {
+            if (m_CastPanel == null)
+                return;
+            m_CastPanel.SetActive(show);
+            m_SettingsButton.SetActive(!show && !m_ScanPanel.activeSelf);
+            M3Fade.Hide(m_Menu);
+        }
+
+        // Hides the QR card but keeps sharing until Stop share is pressed.
+        void CloseCastPanel() => ShowCastPanel(false);
 
         async void OnCodeFound(string text)
         {
@@ -159,9 +248,34 @@ namespace CardboardXR.Stereo
 
             m_Resolving = true;
             m_Scanner.enabled = false;
-            m_Status.text = "Reading viewer...";
             Debug.Log($"[Viewer] Scanned: {text}");
 
+            if (m_CastScanning)
+            {
+                if (WebRtcCast.TryParseRoom(text, out var room))
+                {
+                    m_Resolving = false;
+                    SetScanning(false);
+                    m_Cast.StartCast(room);
+                    RefreshCastStatus();
+                    ShowCastPanel(true);
+                    UpdateShareLabel();
+                    ShowToast($"Sharing room {room}");
+                    return;
+                }
+
+                m_Status.text = "Not a laptop cast QR. Trying again...";
+                await Awaitable.WaitForSecondsAsync(k_RetryDelaySeconds);
+                m_Resolving = false;
+                if (m_ScanPanel.activeSelf)
+                {
+                    m_Status.text = k_CastScanPrompt;
+                    m_Scanner.enabled = true;
+                }
+                return;
+            }
+
+            m_Status.text = "Reading viewer...";
             var (status, url) = await ViewerUrlResolver.ResolveAsync(text);
             m_Resolving = false;
             // Cancelled while the link was being followed.
@@ -236,20 +350,52 @@ namespace CardboardXR.Stereo
             // world-space panel can't be reached.
             var corner = Frame("Corner", root, new Vector2(1f, 1f), new Vector2(-12f, -12f), new Vector2(40f, 40f));
             m_SettingsButton = M3.IconButton("Settings", corner, "settings", M3Button.Variant.Tonal, Vector2.zero, ToggleMenu, 40f).gameObject;
-            var menuFrame = Frame("Menu Frame", root, new Vector2(1f, 1f), new Vector2(-12f, -60f), new Vector2(200f, 188f));
-            var menu = M3.Surface("Menu", menuFrame, Vector2.zero, new Vector2(200f, 188f), M3Theme.SurfaceContainer, M3Theme.k_ShapeSmall);
-            M3.Button("Set viewer", menu.rectTransform, "Set viewer", M3Button.Variant.Text, new Vector2(0f, 60f), ChooseSetViewer,
+            var menuFrame = Frame("Menu Frame", root, new Vector2(1f, 1f), new Vector2(-12f, -60f), new Vector2(200f, 248f));
+            var menu = M3.Surface("Menu", menuFrame, Vector2.zero, new Vector2(200f, 248f), M3Theme.SurfaceContainer, M3Theme.k_ShapeSmall);
+            M3.Button("Set viewer", menu.rectTransform, "Set viewer", M3Button.Variant.Text, new Vector2(0f, 90f), ChooseSetViewer,
                 "qr_code_scanner", 184f);
-            m_View = M3.Button("View", menu.rectTransform, "Phone view", M3Button.Variant.Text, new Vector2(0f, 0f), ToggleView,
+            m_View = M3.Button("View", menu.rectTransform, "Phone view", M3Button.Variant.Text, new Vector2(0f, 30f), ToggleView,
                 "smartphone", 184f);
+            m_Share = M3.Button("Share", menu.rectTransform, "Share view", M3Button.Variant.Text, new Vector2(0f, -30f), ChooseShare,
+                "cast", 184f);
             // The settings panel is summoned by looking at a palm and pinching; this is for when there's
             // no hand to do it with.
-            M3.Button("Open settings", menu.rectTransform, "Open settings", M3Button.Variant.Text, new Vector2(0f, -60f),
+            M3.Button("Open settings", menu.rectTransform, "Open settings", M3Button.Variant.Text, new Vector2(0f, -90f),
                 ChooseOpenSettings, "settings", 184f);
             m_Menu = menuFrame.gameObject;
             m_Menu.AddComponent<M3Fade>();
             m_Menu.SetActive(false);
             UpdateViewLabel();
+            UpdateShareLabel();
+
+            // Material cast panel: QR for the private GitHub Pages viewer room.
+            m_CastPanel = new GameObject("Cast Panel", typeof(Image));
+            m_CastPanel.transform.SetParent(root, false);
+            Stretch((RectTransform)m_CastPanel.transform);
+            m_CastPanel.GetComponent<Image>().color = M3Theme.Surface;
+            var castRect = (RectTransform)m_CastPanel.transform;
+            var castCard = Frame("Cast Card", castRect, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(320f, 480f));
+            var castSurface = M3.Surface("Cast Surface", castCard, Vector2.zero, new Vector2(320f, 480f), M3Theme.SurfaceContainer,
+                M3Theme.k_ShapeLarge);
+            M3.Text("Cast Title", castSurface.rectTransform, "Sharing", M3Theme.Type.TitleMedium, new Vector2(0f, 200f),
+                new Vector2(280f, 36f));
+            M3.Text("Cast Help", castSurface.rectTransform, "Laptop keeps the QR. Stereo is off while casting.",
+                M3Theme.Type.BodyMedium, new Vector2(0f, 160f), new Vector2(280f, 48f), M3Theme.OnSurfaceVariant);
+            var qrFrame = Frame("QR Frame", castSurface.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 40f),
+                new Vector2(180f, 180f));
+            var qrImage = new GameObject("QR", typeof(RawImage));
+            qrImage.transform.SetParent(qrFrame, false);
+            Stretch((RectTransform)qrImage.transform);
+            m_CastQr = qrImage.GetComponent<RawImage>();
+            m_CastQr.color = Color.white;
+            m_CastRoom = M3.Text("Cast Room", castSurface.rectTransform, "Room", M3Theme.Type.BodyLarge, new Vector2(0f, -80f),
+                new Vector2(280f, 32f));
+            M3.Button("Rescan", castSurface.rectTransform, "Rescan", M3Button.Variant.Tonal, new Vector2(-78f, -130f),
+                ChooseRescanLaptop, "qr_code_scanner", 140f);
+            M3.Button("Stop cast", castSurface.rectTransform, "Stop", M3Button.Variant.Tonal, new Vector2(78f, -130f),
+                ChooseStopShare, "close", 140f);
+            M3.Button("Close cast", castSurface.rectTransform, "Done", M3Button.Variant.Filled, new Vector2(0f, -190f),
+                CloseCastPanel, "check", 160f);
 
             m_ScanPanel = new GameObject("Scan Panel", typeof(Image));
             m_ScanPanel.transform.SetParent(root, false);

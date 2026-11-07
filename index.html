@@ -1,173 +1,162 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>GU 2026 Hackathon - Rocket League AR</title>
-    <!-- Import PeerJS for WebRTC Signaling -->
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <style>
-      :root {
-        color-scheme: dark;
-        --bg: #0b1210;
-        --fg: #d7ffe6;
-        --muted: #8fb89a;
-        --accent: #3dff8a;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-        background: radial-gradient(1200px 600px at 50% -10%, #163526 0%, var(--bg) 55%);
-        color: var(--fg);
-        display: grid;
-        place-items: center;
-        padding: 2rem 1.25rem;
-      }
-      main {
-        width: min(40rem, 100%);
-        text-align: center;
-      }
-      h1 {
-        font-size: clamp(1.6rem, 4vw, 2.2rem);
-        margin: 0 0 0.75rem;
-      }
-      p { color: var(--muted); line-height: 1.5; margin: 0.5rem 0; }
-      .qr {
-        margin: 1.5rem auto;
-        width: min(16rem, 70vw);
-        aspect-ratio: 1;
-        background: #fff;
-        border-radius: 0.75rem;
-        display: grid;
-        place-items: center;
-        padding: 0.75rem;
-      }
-      .qr img { width: 100%; height: 100%; object-fit: contain; }
-      code { color: var(--accent); word-break: break-all; }
-      
-      /* New UI Elements */
-      #videoContainer { display: none; margin-top: 1.5rem; }
-      video { width: 100%; border-radius: 8px; background: #000; }
-      button {
-        background: var(--accent);
-        color: #000;
-        border: none;
-        padding: 1rem 2rem;
-        font-size: 1.2rem;
-        font-weight: bold;
-        border-radius: 8px;
-        cursor: pointer;
-        margin-top: 2rem;
-        display: none;
-      }
-      #mobileUI { display: none; }
-      #desktopUI { display: block; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Rocket League AR</h1>
-      <p id="statusText">Connecting to signaling server...</p>
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rocket League AR</title>
+  <style type="text/css">
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+    body {
+      color: #111;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 14px;
+      background: #111;
+    }
 
-      <!-- UI for the Desktop Receiver -->
-      <div id="desktopUI">
-        <p>Scan this QR with your iPhone to start streaming:</p>
-        <div class="qr" aria-label="QR code">
-          <img id="qrImage" alt="QR code loading..." src="" />
+    /* Portrait photo on landscape: blurred cover fill + sharp contained subject. */
+    #wallpaper {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+      background: #111;
+    }
+    #wallpaper-blur,
+    #wallpaper-sharp {
+      position: absolute;
+      inset: 0;
+      background-image: url("arch-linux-tshirt.jpg");
+      background-position: center center;
+      background-repeat: no-repeat;
+    }
+    #wallpaper-blur {
+      background-size: cover;
+      transform: scale(1.12);
+      filter: blur(28px) saturate(1.15) brightness(0.72);
+      -webkit-filter: blur(28px) saturate(1.15) brightness(0.72);
+    }
+    #wallpaper-sharp {
+      background-size: contain;
+      filter: none;
+      -webkit-filter: none;
+    }
+
+    table.page {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+    td.center {
+      text-align: center;
+      vertical-align: middle;
+      padding: 16px;
+    }
+    .box {
+      display: inline-block;
+      background: #f4f4f4;
+      border: 2px solid #000;
+      padding: 12px 16px 14px;
+      max-width: 92vw;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    #status {
+      margin: 0 0 10px;
+      color: #333;
+    }
+    #pair {
+      margin: 0 auto;
+    }
+    #qr {
+      display: block;
+      margin: 0 auto;
+      width: 240px;
+      height: 240px;
+      background: #fff;
+      border: 1px solid #000;
+      overflow: hidden;
+    }
+    #qr svg, #qr img, #qr canvas {
+      display: block;
+      width: 240px;
+      height: 240px;
+      margin: 0 auto;
+    }
+    #room {
+      margin-top: 8px;
+      font-weight: bold;
+    }
+    #stage {
+      margin: 10px auto 0;
+      width: 420px;
+      max-width: 90vw;
+      background: #000;
+      border: 2px solid #000;
+    }
+    #view {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-height: 180px;
+      background: #000;
+    }
+    #actions {
+      margin-top: 10px;
+    }
+    input[type="button"] {
+      font-family: "Courier New", Courier, monospace;
+      font-size: 13px;
+      background: #ddd;
+      border: 2px outset #ccc;
+      padding: 3px 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="wallpaper" aria-hidden="true">
+    <div id="wallpaper-blur"></div>
+    <div id="wallpaper-sharp"></div>
+  </div>
+
+  <table class="page" cellpadding="0" cellspacing="0">
+    <tr>
+      <td class="center">
+        <div class="box">
+          <h1>Rocket League AR</h1>
+          <div id="status">loading...</div>
+
+          <div id="pair">
+            <div id="qr" role="img" aria-label="Pairing QR"></div>
+            <div id="room">----</div>
+          </div>
+
+          <div id="stage" style="display:none">
+            <video id="view" autoplay playsinline muted></video>
+          </div>
+
+          <div id="actions" style="display:none">
+            <input type="button" id="reconnect" value="Reconnect">
+            <input type="button" id="leave" value="New QR">
+          </div>
         </div>
-        <p><code id="sessionUrl">Loading URL...</code></p>
-      </div>
-
-      <!-- UI for the iPhone Sender -->
-      <div id="mobileUI">
-        <p>Connected to Desktop. Tap below to share your screen.</p>
-        <button id="startShareBtn">Start Screen Share</button>
-      </div>
-
-      <!-- Video Player (Visible on Desktop once stream starts) -->
-      <div id="videoContainer">
-        <video id="remoteVideo" autoplay playsinline muted></video>
-      </div>
-    </main>
-
-    <script>
-      // 1. Check if we are the sender (iPhone) or receiver (Desktop)
-      const urlParams = new URLSearchParams(window.location.search);
-      const targetDesktopId = urlParams.get('id');
-      const isMobile = targetDesktopId !== null;
-
-      // Initialize PeerJS
-      const peer = new Peer(); 
-
-      if (!isMobile) {
-        // --- DESKTOP MODE (RECEIVER) ---
-        
-        peer.on('open', (id) => {
-          document.getElementById('statusText').innerText = "Waiting for iPhone to connect...";
-          
-          // Generate the unique URL for the iPhone to scan
-          const baseUrl = window.location.href.split('?')[0];
-          const mobileUrl = `${baseUrl}?id=${id}`;
-          
-          // Update QR Code and Text
-          document.getElementById('sessionUrl').innerText = mobileUrl;
-          document.getElementById('qrImage').src = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(mobileUrl)}`;
-        });
-
-        // Listen for incoming WebRTC calls
-        peer.on('call', (call) => {
-          document.getElementById('statusText').innerText = "Stream incoming...";
-          call.answer(); // Answer the call without sending our own media
-
-          // When we receive the iPhone's screen stream, play it
-          call.on('stream', (remoteStream) => {
-            document.getElementById('desktopUI').style.display = 'none';
-            document.getElementById('videoContainer').style.display = 'block';
-            document.getElementById('statusText').innerText = "Live Stream Active";
-            
-            const videoElement = document.getElementById('remoteVideo');
-            videoElement.srcObject = remoteStream;
-          });
-        });
-
-      } else {
-        // --- MOBILE MODE (IPHONE SENDER) ---
-        
-        document.getElementById('desktopUI').style.display = 'none';
-        document.getElementById('mobileUI').style.display = 'block';
-        document.getElementById('statusText').innerText = "Ready to stream";
-
-        const startShareBtn = document.getElementById('startShareBtn');
-        startShareBtn.style.display = 'inline-block';
-
-        startShareBtn.addEventListener('click', async () => {
-          try {
-            // Request Screen Capture (iOS requires a user gesture/button click for this)
-            const displayStream = await navigator.mediaDevices.getDisplayMedia({
-              video: true,
-              audio: false
-            });
-
-            // Call the Desktop's Peer ID and send the screen stream
-            const call = peer.call(targetDesktopId, displayStream);
-            
-            document.getElementById('statusText').innerText = "Streaming to Desktop!";
-            startShareBtn.style.display = 'none';
-
-            // Handle user stopping the screen share from iOS native controls
-            displayStream.getVideoTracks()[0].onended = () => {
-              document.getElementById('statusText').innerText = "Stream ended.";
-              startShareBtn.style.display = 'inline-block';
-            };
-
-          } catch (err) {
-            console.error("Error sharing screen: ", err);
-            document.getElementById('statusText').innerText = `Error: ${err.name} - ${err.message}`;
-          }
-        });
-      }
-    </script>
-  </body>
+      </td>
+    </tr>
+  </table>
+  <script src="qrcode.min.js"></script>
+  <script>
+    if (typeof qrcode === "function") window.qrcode = qrcode;
+  </script>
+  <script src="webrtc.js"></script>
+</body>
 </html>

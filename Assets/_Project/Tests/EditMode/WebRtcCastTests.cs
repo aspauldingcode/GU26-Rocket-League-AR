@@ -1,0 +1,101 @@
+using CardboardXR.Stereo;
+using NUnit.Framework;
+using UnityEngine;
+
+namespace CardboardXR.Stereo.Tests
+{
+    public class WebRtcCastTests
+    {
+        [Test]
+        public void RoomCodesAreShortAndUrlSafe()
+        {
+            for (var i = 0; i < 20; i++)
+            {
+                var room = WebRtcCast.NewRoomCode();
+                Assert.That(room.Length, Is.EqualTo(8));
+                Assert.That(room, Does.Match("^[a-z0-9]+$"));
+            }
+        }
+
+        [Test]
+        public void ViewerUrlCarriesTheRoomAndNotHostRole()
+        {
+            var url = WebRtcCast.ViewerUrl("demo42ab");
+            Assert.That(url, Does.Contain("room=demo42ab"));
+            Assert.That(url, Does.Not.Contain("role=host"));
+            Assert.That(url, Does.Not.Contain("unity=1"));
+        }
+
+        [Test]
+        public void HostUrlIsAppOnlyAndCacheBusted()
+        {
+            var url = WebRtcCast.HostUrl("demo42ab");
+            Assert.That(url, Does.Contain("role=host"));
+            Assert.That(url, Does.Contain("unity=1"));
+            Assert.That(url, Does.Contain("room=demo42ab"));
+            Assert.That(url, Does.Contain("&t="));
+        }
+
+        [Test]
+        public void RetryBackoffClimbsThenCaps()
+        {
+            var a = WebRtcCast.NextRetryMs(400);
+            var b = WebRtcCast.NextRetryMs(a);
+            var c = WebRtcCast.NextRetryMs(3000);
+            Assert.That(a, Is.GreaterThan(400));
+            Assert.That(b, Is.GreaterThan(a));
+            Assert.That(c, Is.EqualTo(3000));
+        }
+
+        [Test]
+        public void RestartCastIssuesANewRoom()
+        {
+            var host = new GameObject("Cast Host").AddComponent<WebRtcCastHost>();
+            host.StartCast();
+            var first = host.Room;
+            Assert.That(host.IsCasting, Is.True);
+            Assert.That(first, Is.Not.Null.And.Not.Empty);
+
+            host.RestartCast();
+            Assert.That(host.IsCasting, Is.True);
+            Assert.That(host.Room, Is.Not.EqualTo(first));
+
+            host.StopCast();
+            Assert.That(host.IsCasting, Is.False);
+            Assert.That(host.Room, Is.Null);
+            Object.DestroyImmediate(host.gameObject);
+        }
+
+        [Test]
+        public void TryParseRoomReadsLaptopQrUrls()
+        {
+            Assert.That(WebRtcCast.TryParseRoom("Abcd1234", out var bare), Is.True);
+            Assert.That(bare, Is.EqualTo("abcd1234"));
+
+            var url = WebRtcCast.ViewerUrl("demo42ab");
+            Assert.That(WebRtcCast.TryParseRoom(url, out var fromUrl), Is.True);
+            Assert.That(fromUrl, Is.EqualTo("demo42ab"));
+
+            Assert.That(WebRtcCast.TryParseRoom("https://example.com/", out _), Is.False);
+        }
+
+        [Test]
+        public void StartCastCanJoinAnExistingRoom()
+        {
+            var host = new GameObject("Cast Host").AddComponent<WebRtcCastHost>();
+            host.StartCast("laptop01");
+            Assert.That(host.Room, Is.EqualTo("laptop01"));
+            host.StopCast();
+            Object.DestroyImmediate(host.gameObject);
+        }
+
+        [Test]
+        public void QrTextureIsSquare()
+        {
+            var texture = WebRtcCast.MakeQr(WebRtcCast.ViewerUrl("abcd1234"), 128);
+            Assert.That(texture.width, Is.EqualTo(128));
+            Assert.That(texture.height, Is.EqualTo(128));
+            Object.DestroyImmediate(texture);
+        }
+    }
+}

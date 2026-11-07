@@ -343,12 +343,18 @@ namespace ProjectBootstrap
             serializedScanner.ApplyModifiedPropertiesWithoutUndo();
 
             var setup = new GameObject("Viewer Setup").AddComponent<ViewerSetupController>();
+            var cast = setup.gameObject.AddComponent<WebRtcCastHost>();
+            cast.Configure(rig);
             var serializedSetup = new SerializedObject(setup);
             serializedSetup.FindProperty("m_Rig").objectReferenceValue = rig;
             serializedSetup.FindProperty("m_Session").objectReferenceValue = session;
             serializedSetup.FindProperty("m_CameraManager").objectReferenceValue = cameraManager;
             serializedSetup.FindProperty("m_Scanner").objectReferenceValue = scanner;
+            serializedSetup.FindProperty("m_Cast").objectReferenceValue = cast;
             serializedSetup.ApplyModifiedPropertiesWithoutUndo();
+            var serializedCast = new SerializedObject(cast);
+            serializedCast.FindProperty("m_Rig").objectReferenceValue = rig;
+            serializedCast.ApplyModifiedPropertiesWithoutUndo();
             return (poseSource, origin.gameObject, arCamera, new Behaviour[] { background, poseDriver });
         }
 
