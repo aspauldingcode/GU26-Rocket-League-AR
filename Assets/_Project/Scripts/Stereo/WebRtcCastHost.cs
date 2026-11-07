@@ -49,6 +49,23 @@ namespace CardboardXR.Stereo
             Debug.Log($"[Cast] Sharing mono UI on room {m_Room}");
         }
 
+        // New room + QR: drops stale PeerJS host ids so viewers can re-pair cleanly.
+        public void RestartCast()
+        {
+            StopCast();
+            StartCast();
+        }
+
+        // Same room, fresh host page (clears a wedged PeerJS peer without changing the QR).
+        public void SoftReconnectHost()
+        {
+            if (!m_Casting || string.IsNullOrEmpty(m_Room) || m_WebView == null)
+                return;
+            m_WebView.Open(WebRtcCast.HostUrl(m_Room));
+            m_NextFrame = Time.unscaledTime + 0.5f;
+            Debug.Log($"[Cast] Soft-reconnected host for room {m_Room}");
+        }
+
         public void StopCast()
         {
             if (!m_Casting)
@@ -58,6 +75,7 @@ namespace CardboardXR.Stereo
             m_WebView?.Close();
             if (m_Rig != null && m_Rig.IsMono != m_WasMono)
                 m_Rig.SetMono(m_WasMono);
+            m_Room = null;
             Debug.Log("[Cast] Stopped sharing");
         }
 

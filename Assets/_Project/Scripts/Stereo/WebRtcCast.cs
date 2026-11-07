@@ -31,8 +31,18 @@ namespace CardboardXR.Stereo
         public static string ViewerUrl(string room) =>
             $"{PagesBaseUrl}?room={Uri.EscapeDataString(room)}";
 
+        // Cache-bust so a restarted WebView does not keep a dead PeerJS page around.
         public static string HostUrl(string room) =>
-            $"{PagesBaseUrl}?role=host&unity=1&room={Uri.EscapeDataString(room)}";
+            $"{PagesBaseUrl}?role=host&unity=1&room={Uri.EscapeDataString(room)}&t={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+
+        // Matches webrtc.js nextRetryMs: backoff for reconnect messaging / host rebind.
+        public static int NextRetryMs(int current, int startMs = 1200, int maxMs = 8000)
+        {
+            var next = (int)(Math.Max(current, 1) * 1.6);
+            if (next < startMs) next = startMs;
+            if (next > maxMs) next = maxMs;
+            return next;
+        }
 
         // Black modules on white, for a RawImage in the Material cast panel.
         public static Texture2D MakeQr(string text, int size = 256)

@@ -82,6 +82,17 @@
         font: 600 1rem/1 system-ui, sans-serif;
         cursor: pointer;
       }
+      #actions {
+        margin-top: 0.9rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+      }
+      #actions button.secondary {
+        background: transparent;
+        color: var(--fg);
+        border: 1px solid var(--line);
+      }
       .meta {
         margin-top: 1rem;
         font-size: 0.9rem;
@@ -112,6 +123,11 @@
 
       <div id="stage" hidden>
         <video id="view" autoplay playsinline muted></video>
+      </div>
+
+      <div id="actions" hidden>
+        <button type="button" id="reconnect">Reconnect</button>
+        <button type="button" id="leave" class="secondary">Leave room</button>
       </div>
 
       <p class="meta">Room: <code id="room">none</code></p>

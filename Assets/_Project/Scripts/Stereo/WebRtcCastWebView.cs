@@ -42,6 +42,9 @@ namespace CardboardXR.Stereo
         public void Close()
         {
             m_Ready = false;
+            // Drop the PeerJS host id before tearing the WebView down, so a quick New QR
+            // does not hit unavailable-id on a stale registration.
+            Eval("try{window.__cast&&window.__cast.destroy&&window.__cast.destroy()}catch(e){}");
 #if UNITY_ANDROID && !UNITY_EDITOR
             CloseAndroid();
 #elif UNITY_IOS && !UNITY_EDITOR

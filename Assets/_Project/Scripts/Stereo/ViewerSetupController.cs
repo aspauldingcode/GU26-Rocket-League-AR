@@ -151,22 +151,50 @@ namespace CardboardXR.Stereo
             M3Fade.Hide(m_Menu);
             if (m_Cast != null && m_Cast.IsCasting)
             {
-                m_Cast.StopCast();
-                ShowCastPanel(false);
-                UpdateShareLabel();
-                ShowToast("Stopped sharing");
+                // Re-pair: show the current QR again without tearing the session down.
+                RefreshCastQr();
+                ShowCastPanel(true);
+                ShowToast("Scan the QR again to re-pair.");
                 return;
             }
 
             m_Cast.StartCast();
+            RefreshCastQr();
+            ShowCastPanel(true);
+            UpdateShareLabel();
+            ShowToast("Share view on. Scan the QR from a laptop.");
+        }
+
+        void ChooseStopShare()
+        {
+            if (m_Cast == null || !m_Cast.IsCasting)
+                return;
+            m_Cast.StopCast();
+            ShowCastPanel(false);
+            UpdateShareLabel();
+            ShowToast("Stopped sharing");
+        }
+
+        void ChooseNewQr()
+        {
+            if (m_Cast == null)
+                return;
+            m_Cast.RestartCast();
+            RefreshCastQr();
+            ShowCastPanel(true);
+            UpdateShareLabel();
+            ShowToast("New room. Scan this QR; old links stop working.");
+        }
+
+        void RefreshCastQr()
+        {
+            if (m_Cast == null || string.IsNullOrEmpty(m_Cast.ViewerUrl))
+                return;
             if (m_CastQrTexture != null)
                 Destroy(m_CastQrTexture);
             m_CastQrTexture = WebRtcCast.MakeQr(m_Cast.ViewerUrl);
             m_CastQr.texture = m_CastQrTexture;
             m_CastRoom.text = $"Room {m_Cast.Room}";
-            ShowCastPanel(true);
-            UpdateShareLabel();
-            ShowToast("Share view on. Scan the QR from a laptop.");
         }
 
         // The button says which view it would switch to, not which one it's in.
@@ -185,8 +213,9 @@ namespace CardboardXR.Stereo
             if (m_Share == null || m_Cast == null)
                 return;
             var on = m_Cast.IsCasting;
-            m_Share.Text = on ? "Stop share" : "Share view";
-            m_Share.Icon = on ? "cast_connected" : "cast";
+            // While casting, the gear entry re-shows the QR for re-pair; Stop lives on the cast card.
+            m_Share.Text = on ? "Show QR" : "Share view";
+            m_Share.Icon = on ? "qr_code" : "cast";
         }
 
         void ShowScanPanel(bool show)
@@ -320,24 +349,28 @@ namespace CardboardXR.Stereo
             Stretch((RectTransform)m_CastPanel.transform);
             m_CastPanel.GetComponent<Image>().color = M3Theme.Surface;
             var castRect = (RectTransform)m_CastPanel.transform;
-            var castCard = Frame("Cast Card", castRect, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(320f, 420f));
-            var castSurface = M3.Surface("Cast Surface", castCard, Vector2.zero, new Vector2(320f, 420f), M3Theme.SurfaceContainer,
+            var castCard = Frame("Cast Card", castRect, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(320f, 480f));
+            var castSurface = M3.Surface("Cast Surface", castCard, Vector2.zero, new Vector2(320f, 480f), M3Theme.SurfaceContainer,
                 M3Theme.k_ShapeLarge);
-            M3.Text("Cast Title", castSurface.rectTransform, "Share view", M3Theme.Type.TitleMedium, new Vector2(0f, 170f),
+            M3.Text("Cast Title", castSurface.rectTransform, "Share view", M3Theme.Type.TitleMedium, new Vector2(0f, 200f),
                 new Vector2(280f, 36f));
-            M3.Text("Cast Help", castSurface.rectTransform, "Scan with a laptop browser. Stereo is off so the UI stays readable.",
-                M3Theme.Type.BodyMedium, new Vector2(0f, 130f), new Vector2(280f, 48f), M3Theme.OnSurfaceVariant);
-            var qrFrame = Frame("QR Frame", castSurface.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 10f),
-                new Vector2(200f, 200f));
+            M3.Text("Cast Help", castSurface.rectTransform, "Scan with a laptop. Stereo is off so the UI stays readable.",
+                M3Theme.Type.BodyMedium, new Vector2(0f, 160f), new Vector2(280f, 48f), M3Theme.OnSurfaceVariant);
+            var qrFrame = Frame("QR Frame", castSurface.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 40f),
+                new Vector2(180f, 180f));
             var qrImage = new GameObject("QR", typeof(RawImage));
             qrImage.transform.SetParent(qrFrame, false);
             Stretch((RectTransform)qrImage.transform);
             m_CastQr = qrImage.GetComponent<RawImage>();
             m_CastQr.color = Color.white;
-            m_CastRoom = M3.Text("Cast Room", castSurface.rectTransform, "Room", M3Theme.Type.BodyLarge, new Vector2(0f, -120f),
+            m_CastRoom = M3.Text("Cast Room", castSurface.rectTransform, "Room", M3Theme.Type.BodyLarge, new Vector2(0f, -80f),
                 new Vector2(280f, 32f));
-            M3.Button("Close cast", castSurface.rectTransform, "Done", M3Button.Variant.Filled, new Vector2(0f, -170f),
-                CloseCastPanel, "close", 160f);
+            M3.Button("New QR", castSurface.rectTransform, "New QR", M3Button.Variant.Tonal, new Vector2(-78f, -130f),
+                ChooseNewQr, "refresh", 140f);
+            M3.Button("Stop cast", castSurface.rectTransform, "Stop", M3Button.Variant.Tonal, new Vector2(78f, -130f),
+                ChooseStopShare, "close", 140f);
+            M3.Button("Close cast", castSurface.rectTransform, "Done", M3Button.Variant.Filled, new Vector2(0f, -190f),
+                CloseCastPanel, "check", 160f);
 
             m_ScanPanel = new GameObject("Scan Panel", typeof(Image));
             m_ScanPanel.transform.SetParent(root, false);
