@@ -146,11 +146,8 @@
           try {
             // Request Screen Capture (iOS requires a user gesture/button click for this)
             const displayStream = await navigator.mediaDevices.getDisplayMedia({
-              video: {
-                video: true,
-                audio: false
-              },
-              audio: false // Screen audio is restricted on iOS Safari
+              video: true,
+              audio: false
             });
 
             // Call the Desktop's Peer ID and send the screen stream
