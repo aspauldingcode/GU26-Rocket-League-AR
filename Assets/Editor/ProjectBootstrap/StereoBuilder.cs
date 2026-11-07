@@ -240,7 +240,7 @@ namespace ProjectBootstrap
             var tracker = head.AddComponent<GyroHeadTracker>();
             head.AddComponent<FrameTimingLog>();
             head.AddComponent<PerformanceLog>();
-            var (poseSource, origin, arCamera, arViewOnly) = BuildViewerSetup(rig);
+            var (poseSource, origin, arCamera, arViewOnly, viewerSetup) = BuildViewerSetup(rig);
             var fusion = head.AddComponent<HeadPoseFusion>();
             var passthrough = origin.AddComponent<PassthroughController>();
             var demosObject = new GameObject("Demos");
@@ -259,6 +259,8 @@ namespace ProjectBootstrap
             // Shown in 6DoF only (RoomBoundary), where there's AR to scan with.
             var scanButton = ToolbarItem(panel, "Scan", "radar", "Scan Room", boundary.ToggleScan);
             toolbar[4] = scanButton;
+            // Hand-reachable cast: same flow as the phone-screen Share menu.
+            toolbar[5] = ToolbarItem(panel, "Share", "cast", "Share", viewerSetup.ShareScreen);
             var serializedBoundary = new SerializedObject(boundary);
             serializedBoundary.FindProperty("m_ScanButton").objectReferenceValue = scanButton;
             serializedBoundary.FindProperty("m_Passthrough").objectReferenceValue = passthrough;
@@ -280,7 +282,8 @@ namespace ProjectBootstrap
         // An AR session and camera, off in the scene: ArPoseSource runs them for 6DoF tracking, and
         // ViewerSetupController for QR scanning. Images are read on the CPU, so the AR camera itself
         // never renders.
-        static (ArPoseSource poseSource, GameObject origin, Camera arCamera, Behaviour[] arViewOnly) BuildViewerSetup(StereoRig rig)
+        static (ArPoseSource poseSource, GameObject origin, Camera arCamera, Behaviour[] arViewOnly, ViewerSetupController setup)
+            BuildViewerSetup(StereoRig rig)
         {
             var sessionObject = new GameObject("AR Session");
             var session = sessionObject.AddComponent<ARSession>();
@@ -355,7 +358,7 @@ namespace ProjectBootstrap
             var serializedCast = new SerializedObject(cast);
             serializedCast.FindProperty("m_Rig").objectReferenceValue = rig;
             serializedCast.ApplyModifiedPropertiesWithoutUndo();
-            return (poseSource, origin.gameObject, arCamera, new Behaviour[] { background, poseDriver });
+            return (poseSource, origin.gameObject, arCamera, new Behaviour[] { background, poseDriver }, setup);
         }
 
         // What the lobby and demo scenes reach Core through, and what loads them.
@@ -812,10 +815,10 @@ namespace ProjectBootstrap
 
         // Core's controls, as a Material floating toolbar: icon-and-label items on a pill-shaped surface,
         // in three groups split by dividers: Apps, which shows the app library above it; the actions,
-        // Recenter and Scan Room (6DoF only); and the toggles, 6DoF and Passthrough, shown selected
-        // while on. (Pinching is always on: see PinchInput.) M3Toolbar lays out only the items
-        // showing. Scan Room is added once the room boundary exists, then ArrangeToolbar finishes it.
-        // Returns the items (Apps, Recenter, 6DoF, Passthrough, then one empty for Scan Room) and the panel.
+        // Recenter, Scan Room (6DoF only), and Share; and the toggles, 6DoF and Passthrough, shown
+        // selected while on. (Pinching is always on: see PinchInput.) M3Toolbar lays out only the items
+        // showing. Scan Room and Share are filled in after boundary / viewer setup exist, then
+        // ArrangeToolbar finishes it. Returns Apps, Recenter, 6DoF, Passthrough, Scan slot, Share slot.
         static (M3Button[] items, RectTransform panel) BuildToolbar(HeadPoseFusion fusion,
             PassthroughController passthrough, DemoManager demos)
         {
@@ -830,7 +833,7 @@ namespace ProjectBootstrap
 
             // The view switch isn't here: it's on the screen itself, in the settings menu, since it's
             // pressed with the phone in hand where this panel can't be reached.
-            var items = new M3Button[5];
+            var items = new M3Button[6];
             // Apps shows the app library above the panel (BuildLibrary), the way to the lobby and
             // between demos.
             var library = demos.gameObject.AddComponent<AppLibrary>();
@@ -911,9 +914,9 @@ namespace ProjectBootstrap
         // Orders the items into their groups, with a divider before each group after the first.
         static void ArrangeToolbar(RectTransform panel, M3Button[] items)
         {
-            // Apps | Recenter, Scan Room | 6DoF, Passthrough.
-            var order = new[] { items[0], items[1], items[4], items[2], items[3] };
-            var groups = new[] { 0, 1, 1, 2, 2 };
+            // Apps | Recenter, Scan Room, Share | 6DoF, Passthrough.
+            var order = new[] { items[0], items[1], items[4], items[5], items[2], items[3] };
+            var groups = new[] { 0, 1, 1, 1, 2, 2 };
             var dividers = new Image[3];
             for (var g = 1; g < dividers.Length; g++)
             {

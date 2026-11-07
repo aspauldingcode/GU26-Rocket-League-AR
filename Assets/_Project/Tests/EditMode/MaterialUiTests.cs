@@ -119,8 +119,8 @@ namespace CardboardXR.Stereo.Tests
         [Test]
         public void ToolbarClosesUpAroundHiddenItems()
         {
-            // Lobby | Recenter, Scan | 6DoF, Passthrough, Pinch, items 92 wide, dividers 16.
-            var groups = new[] { 0, 1, 1, 2, 2, 2 };
+            // Apps | Recenter, Scan, Share | 6DoF, Passthrough — items 92 wide, dividers 16.
+            var groups = new[] { 0, 1, 1, 1, 2, 2 };
             var itemX = new float[6];
             var dividerX = new float[3];
             var width = M3Toolbar.Arrange(new[] { true, true, true, true, true, true }, groups, 3, 92f, 16f, itemX, dividerX);
@@ -129,13 +129,13 @@ namespace CardboardXR.Stereo.Tests
             Assert.AreEqual(92f + 8f, dividerX[1]);
             Assert.AreEqual(92f + 16f + 46f, itemX[1]);
 
-            // Lobby hidden: its group and the divider after it go, and the rest start at the left.
+            // Apps hidden: its group and the divider after it go, and the rest start at the left.
             width = M3Toolbar.Arrange(new[] { false, true, true, true, true, true }, groups, 3, 92f, 16f, itemX, dividerX);
             Assert.AreEqual(5 * 92f + 16f, width);
             Assert.IsNaN(itemX[0]);
             Assert.IsNaN(dividerX[1]);
             Assert.AreEqual(46f, itemX[1]);
-            Assert.AreEqual(2 * 92f + 8f, dividerX[2]);
+            Assert.AreEqual(3 * 92f + 8f, dividerX[2]);
         }
     }
 }

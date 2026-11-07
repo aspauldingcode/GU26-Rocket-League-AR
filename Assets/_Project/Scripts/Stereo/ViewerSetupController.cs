@@ -34,7 +34,10 @@ namespace CardboardXR.Stereo
         float m_MenuCloseTime;
         M3Button m_View;
         M3Button m_Share;
+        M3Button m_ToolbarShare;
+        M3Button m_UseCardboard;
         bool m_ShownMono;
+        bool m_ShareSelected;
         GameObject m_ScanPanel;
         GameObject m_CastPanel;
         RawImage m_Preview;
@@ -62,6 +65,7 @@ namespace CardboardXR.Stereo
                 m_Cast.Configure(m_Rig);
             }
             BuildUi();
+            EnsureToolbarShare();
             ShowScanPanel(false);
             ShowCastPanel(false);
             LoadSavedViewer();
@@ -88,7 +92,13 @@ namespace CardboardXR.Stereo
             // from elsewhere, so the label follows it rather than only the button's own presses.
             if (m_ShownMono != m_Rig.IsMono)
                 UpdateViewLabel();
+            var sharing = m_Cast != null && m_Cast.IsCasting;
+            if (sharing != m_ShareSelected)
+                UpdateShareLabel();
         }
+
+        // Hand-tracked Material toolbar (Gaze Panel): same cast flow as the phone-screen Share menu.
+        public void ShareScreen() => ChooseShare();
 
         void LoadSavedViewer()
         {
@@ -209,11 +219,81 @@ namespace CardboardXR.Stereo
 
         void UpdateShareLabel()
         {
-            if (m_Share == null || m_Cast == null)
+            var on = m_Cast != null && m_Cast.IsCasting;
+            m_ShareSelected = on;
+            if (m_Share != null)
+            {
+                m_Share.Text = on ? "Cast status" : "Share view";
+                m_Share.Icon = on ? "cast_connected" : "cast";
+            }
+            if (m_ToolbarShare != null)
+            {
+                m_ToolbarShare.Selected = on;
+                m_ToolbarShare.Text = on ? "Sharing" : "Share";
+                m_ToolbarShare.Icon = on ? "cast_connected" : "cast";
+            }
+        }
+
+        // Puts Share on the world-space settings orbiter next to Recenter / Scan Room so pinch works.
+        void EnsureToolbarShare()
+        {
+            // Gaze Panel starts inactive (SettingsSummoner); Find() would miss it.
+            var panelObject = FindGazePanel();
+            if (panelObject == null)
                 return;
-            var on = m_Cast.IsCasting;
-            m_Share.Text = on ? "Cast status" : "Share view";
-            m_Share.Icon = on ? "cast_connected" : "cast";
+            var panel = (RectTransform)panelObject.transform;
+            var existing = panel.Find("Share");
+            if (existing != null)
+            {
+                m_ToolbarShare = existing.GetComponent<M3Button>();
+                if (m_ToolbarShare != null && m_ToolbarShare.Button != null)
+                {
+                    m_ToolbarShare.Button.onClick.RemoveListener(ShareScreen);
+                    m_ToolbarShare.Button.onClick.AddListener(ShareScreen);
+                }
+                UpdateShareLabel();
+                return;
+            }
+
+            var toolbar = panelObject.GetComponent<M3Toolbar>();
+            if (toolbar == null)
+                return;
+
+            m_ToolbarShare = M3.ToolbarItem("Share", panel, "cast", "Share", Vector2.zero, 92f, ShareScreen);
+            var apps = panel.Find("Apps");
+            var recenter = panel.Find("Recenter");
+            var scan = panel.Find("Scan");
+            var tracking = panel.Find("Tracking Mode");
+            var passthrough = panel.Find("Passthrough");
+            if (apps == null || recenter == null || tracking == null || passthrough == null)
+                return;
+
+            var shareRect = (RectTransform)m_ToolbarShare.transform;
+            var items = scan != null
+                ? new[] { apps, recenter, scan, shareRect, tracking, passthrough }
+                : new[] { apps, recenter, shareRect, tracking, passthrough };
+            var groups = scan != null
+                ? new[] { 0, 1, 1, 1, 2, 2 }
+                : new[] { 0, 1, 1, 2, 2 };
+
+            var dividers = new Image[3];
+            var d1 = panel.Find("Divider 1");
+            var d2 = panel.Find("Divider 2");
+            if (d1 != null) dividers[1] = d1.GetComponent<Image>();
+            if (d2 != null) dividers[2] = d2.GetComponent<Image>();
+            toolbar.SetItems(items, groups, dividers);
+            UpdateShareLabel();
+        }
+
+        static GameObject FindGazePanel()
+        {
+            var canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            for (var i = 0; i < canvases.Length; i++)
+            {
+                if (canvases[i] != null && canvases[i].gameObject.name == "Gaze Panel")
+                    return canvases[i].gameObject;
+            }
+            return null;
         }
 
         void ShowScanPanel(bool show)
@@ -227,6 +307,8 @@ namespace CardboardXR.Stereo
                 m_CastScanning = false;
             m_Rig.enabled = !show;
             m_Status.text = m_CastScanning ? k_CastScanPrompt : k_ScanPrompt;
+            if (m_UseCardboard != null)
+                m_UseCardboard.gameObject.SetActive(show && !m_CastScanning);
         }
 
         void ShowCastPanel(bool show)
@@ -417,8 +499,8 @@ namespace CardboardXR.Stereo
             m_Status = M3.Text("Status", statusBar.rectTransform, "", M3Theme.Type.BodyLarge, Vector2.zero, new Vector2(568f, 56f));
             var actions = Frame("Actions", scanRect, new Vector2(0.5f, 0f), new Vector2(0f, 16f), new Vector2(420f, 56f));
             M3.Button("Cancel", actions, "Cancel", M3Button.Variant.Tonal, new Vector2(-110f, 0f), () => SetScanning(false), "close", 180f);
-            M3.Button("Use Cardboard v1", actions, "Use Cardboard v1", M3Button.Variant.Filled, new Vector2(100f, 0f), UseCardboardV1,
-                null, 210f);
+            m_UseCardboard = M3.Button("Use Cardboard v1", actions, "Use Cardboard v1", M3Button.Variant.Filled,
+                new Vector2(100f, 0f), UseCardboardV1, null, 210f);
 
             // A Material snackbar: inverse colors, low on the screen.
             var bottom = Frame("Snackbar Frame", root, new Vector2(0.5f, 0f), new Vector2(0f, 72f), new Vector2(560f, 56f));

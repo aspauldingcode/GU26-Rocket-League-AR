@@ -40,6 +40,16 @@ namespace CardboardXR.UI
             Layout();
         }
 
+        // Rebuild the row (e.g. after a runtime-added Share item) while keeping padding/size.
+        public void SetItems(RectTransform[] items, int[] groups, Image[] dividers = null)
+        {
+            m_Items = items;
+            m_Groups = groups;
+            if (dividers != null)
+                m_Dividers = dividers;
+            Layout();
+        }
+
         void OnEnable() => Layout();
 
         void LateUpdate()
