@@ -94,14 +94,21 @@ namespace CardboardXR.Demos.Ascii
             head.z = -head.z;
             if (m_HasLastHead)
             {
-                var crossing = AsciiCrossing.Crossing(m_LastHead, head, DoorWidth / 2f, DoorHeight);
-                if (crossing > 0 && !IsInside)
-                    SetInside(true, announce: true);
-                else if (crossing < 0 && IsInside)
-                    SetInside(false, announce: true);
+                if (Mathf.Abs(head.z) >= AsciiCrossing.PlaneClearance)
+                {
+                    var crossing = AsciiCrossing.Crossing(m_LastHead, head, DoorWidth / 2f, DoorHeight);
+                    if (crossing > 0 && !IsInside)
+                        SetInside(true, announce: true);
+                    else if (crossing < 0 && IsInside)
+                        SetInside(false, announce: true);
+                    m_LastHead = head;
+                }
             }
-            m_LastHead = head;
-            m_HasLastHead = true;
+            else
+            {
+                m_LastHead = head;
+                m_HasLastHead = true;
+            }
         }
 
         void SetInside(bool inside, bool announce)

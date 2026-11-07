@@ -15,8 +15,14 @@ namespace CardboardXR.Demos.Ascii.Tests
         [Test]
         public void WalkingThroughTheGateGoesInAndBackOut()
         {
-            Assert.AreEqual(1, Cross(new Vector3(0f, 1.6f, -0.05f), new Vector3(0f, 1.6f, 0.05f)));
-            Assert.AreEqual(-1, Cross(new Vector3(0.1f, 1.6f, 0.05f), new Vector3(0.1f, 1.6f, -0.05f)));
+            Assert.AreEqual(1, Cross(new Vector3(0f, 1.6f, -0.2f), new Vector3(0f, 1.6f, 0.2f)));
+            Assert.AreEqual(-1, Cross(new Vector3(0.1f, 1.6f, 0.2f), new Vector3(0.1f, 1.6f, -0.2f)));
+        }
+
+        [Test]
+        public void SmallPlaneJitterIsNoCrossing()
+        {
+            Assert.AreEqual(0, Cross(new Vector3(0f, 1.6f, -0.05f), new Vector3(0f, 1.6f, 0.05f)));
         }
 
         [Test]
@@ -29,8 +35,8 @@ namespace CardboardXR.Demos.Ascii.Tests
         [Test]
         public void GoingAroundTheFrameIsNoCrossing()
         {
-            Assert.AreEqual(0, Cross(new Vector3(0.95f, 1.6f, -0.05f), new Vector3(0.95f, 1.6f, 0.05f)));
-            Assert.AreEqual(0, Cross(new Vector3(0f, 2.5f, -0.05f), new Vector3(0f, 2.5f, 0.05f)));
+            Assert.AreEqual(0, Cross(new Vector3(0.95f, 1.6f, -0.2f), new Vector3(0.95f, 1.6f, 0.2f)));
+            Assert.AreEqual(0, Cross(new Vector3(0f, 2.5f, -0.2f), new Vector3(0f, 2.5f, 0.2f)));
         }
     }
 }
