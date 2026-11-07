@@ -8,7 +8,8 @@ using UnityEngine.XR.ARSubsystems;
 namespace CardboardXR.Demos.Ascii
 {
     // Place a glyph gate on the floor, walk through into an ASCII remapping of your room's surfaces,
-    // walk back to return to passthrough. Logs [Ascii].
+    // walk back to return to passthrough. Inside the gate passthrough turns off so stereo and the
+    // hand skeleton come back; the camera still feeds glyph color. Logs [Ascii].
     public class AsciiDemo : Demo
     {
         [SerializeField] GameObject m_PortalPrefab;
@@ -25,6 +26,9 @@ namespace CardboardXR.Demos.Ascii
         AudioClip m_Whoosh;
         ARPlaneManager m_Planes;
         PlaneDetectionMode? m_PreviousDetection;
+        bool m_HadPassthrough;
+        bool m_InsideWorld;
+        bool m_Capturing;
 
         public override void OnDemoEnter(CoreServices core)
         {
@@ -44,6 +48,9 @@ namespace CardboardXR.Demos.Ascii
             else
                 FindWalls(planes, core.Boundary);
             m_Surfaces.Configure(m_AsciiMaterial, planes, core.Passthrough);
+            // Glyph color keeps reading the camera while the display is off inside the gate.
+            core.Passthrough.RetainCapture();
+            m_Capturing = true;
 
             m_Angels = gameObject.AddComponent<AsciiAngels>();
             m_Angels.Configure(m_AngelPrefab, core.Head);
@@ -61,6 +68,7 @@ namespace CardboardXR.Demos.Ascii
             core.Placer.Placed -= OnPlaced;
             if (m_Portal != null)
                 m_Portal.Crossed -= OnCrossed;
+            SetInsideWorld(false);
             if (m_Surfaces != null)
             {
                 m_Surfaces.SetGate(null);
@@ -72,6 +80,11 @@ namespace CardboardXR.Demos.Ascii
                 m_Angels.SetInside(false);
                 Destroy(m_Angels);
                 m_Angels = null;
+            }
+            if (m_Capturing)
+            {
+                core.Passthrough.ReleaseCapture();
+                m_Capturing = false;
             }
             if (m_Planes != null && m_PreviousDetection.HasValue)
                 m_Planes.requestedDetectionMode = m_PreviousDetection.Value;
@@ -113,8 +126,34 @@ namespace CardboardXR.Demos.Ascii
         void OnCrossed(bool inside)
         {
             m_Audio.PlayOneShot(m_Whoosh, 0.7f);
+            SetInsideWorld(inside);
             m_Angels?.SetInside(inside);
             UpdateHint();
+        }
+
+        // Inside: drop the passthrough screen and mono eyes so Cardboard stereo and the hand
+        // skeleton return. Outside: restore whatever passthrough was on before the crossing.
+        void SetInsideWorld(bool inside)
+        {
+            if (m_Core == null || inside == m_InsideWorld)
+                return;
+            m_InsideWorld = inside;
+            if (inside)
+            {
+                m_HadPassthrough = m_Core.Passthrough.IsOn;
+                if (m_HadPassthrough)
+                    m_Core.Passthrough.Choose(false);
+                // Choose(false) unhides the checker environment; keep it dark in the ASCII void.
+                VirtualEnvironment.SetAllHidden(true);
+                Debug.Log("[Ascii] Passthrough off inside the gate (stereo + hand model)");
+                return;
+            }
+            if (m_HadPassthrough)
+            {
+                m_Core.Passthrough.Choose(true);
+                m_HadPassthrough = false;
+                Debug.Log("[Ascii] Passthrough restored outside the gate");
+            }
         }
 
         void Move()
@@ -125,6 +164,7 @@ namespace CardboardXR.Demos.Ascii
             portal.Crossed -= OnCrossed;
             m_Portal = null;
             m_Surfaces?.SetGate(null);
+            SetInsideWorld(false);
             m_Angels?.SetInside(false);
             m_Audio.PlayOneShot(m_Whoosh, 0.3f);
             Debug.Log("[Ascii] Closing the gate to move it");

@@ -54,6 +54,9 @@ namespace CardboardXR.Stereo
         CommandBuffer m_Commands;
         RenderTexture m_Texture;
         bool m_On;
+        // How many callers want the camera image without the passthrough screen (Ascii glyphs).
+        int m_CaptureUsers;
+        bool m_Listening;
         // 3DoF turned passthrough off, so it comes back with 6DoF.
         bool m_ResumeWithSixDof;
         // ArDebugView drives the AR camera itself.
@@ -67,8 +70,9 @@ namespace CardboardXR.Stereo
 
         public bool IsOn => m_On;
 
-        // The whole camera image as RGB, once one has arrived while passthrough is on, else null.
-        public Texture CameraImage => m_On && m_HasImage ? m_Texture : null;
+        // The whole camera image as RGB once a frame has been drawn into it, whether or not the
+        // passthrough screen is shown. Ascii surfaces keep sampling this with the display off.
+        public Texture CameraImage => m_HasImage ? m_Texture : null;
 
         // Where the image was taken from: texture UV is (x / z, y / z) in this transform's space,
         // less ImageFrustum's center, over its size, plus 0.5.
@@ -106,8 +110,8 @@ namespace CardboardXR.Stereo
 
         void OnDestroy()
         {
-            if (m_On)
-                m_CameraManager.frameReceived -= OnCameraFrame;
+            m_CaptureUsers = 0;
+            SetListening(false);
             if (m_Texture != null)
             {
                 m_Texture.Release();
@@ -130,6 +134,24 @@ namespace CardboardXR.Stereo
             SetPassthrough(on);
         }
 
+        // Keeps drawing the camera into CameraImage without showing the passthrough screen or
+        // collapsing the eyes to mono. Ascii uses this so glyphs stay camera-colored inside the gate.
+        public void RetainCapture()
+        {
+            m_CaptureUsers++;
+            if (m_CaptureUsers == 1)
+                SetListening(true);
+        }
+
+        public void ReleaseCapture()
+        {
+            if (m_CaptureUsers <= 0)
+                return;
+            m_CaptureUsers--;
+            if (m_CaptureUsers == 0 && !m_On)
+                SetListening(false);
+        }
+
         public void SetPassthrough(bool on)
         {
             if (m_ArViewActive || on == m_On)
@@ -137,15 +159,11 @@ namespace CardboardXR.Stereo
 
             m_On = on;
             if (on)
-            {
                 m_Fusion.SetMode(HeadPoseFusion.Mode.SixDof);
-                m_CameraManager.frameReceived += OnCameraFrame;
-            }
-            else
-            {
-                m_CameraManager.frameReceived -= OnCameraFrame;
-            }
+            SetListening(on || m_CaptureUsers > 0);
 
+            // Display only: capture can keep running with these off so stereo and the hand skeleton
+            // come back (HandJointsView hides while IsOn).
             m_PoseDriver.enabled = on;
             m_Fusion.EyesAtCamera = on;
             if (m_Rig != null)
@@ -156,6 +174,17 @@ namespace CardboardXR.Stereo
             if (m_Toggle != null)
                 m_Toggle.Selected = on;
             Debug.Log(on ? "[Passthrough] On" : "[Passthrough] Off");
+        }
+
+        void SetListening(bool on)
+        {
+            if (m_CameraManager == null || on == m_Listening)
+                return;
+            if (on)
+                m_CameraManager.frameReceived += OnCameraFrame;
+            else
+                m_CameraManager.frameReceived -= OnCameraFrame;
+            m_Listening = on;
         }
 
         void OnCameraFrame(ARCameraFrameEventArgs args)
@@ -194,6 +223,7 @@ namespace CardboardXR.Stereo
                 return;
 
             m_HasImage = true;
+            // Capture-only callers must not light the screen: that reintroduces the mono crop.
             m_Screen.enabled = m_On;
             Debug.Log($"[Passthrough] Camera image {m_Texture.width}x{m_Texture.height}, " +
                       $"{2f * Mathf.Atan(m_FrustumSize.x / 2f) * Mathf.Rad2Deg:F0} x " +
