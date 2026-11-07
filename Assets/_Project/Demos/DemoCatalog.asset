@@ -87,8 +87,8 @@ MonoBehaviour:
       KeepPlacedObjects: 0
   - Id: ascii
     Title: ASCII Portal
-    Description: Open a glyph gate on your floor and walk through into an ASCII remapping of your room. Walk back through to return to passthrough.
-    Tagline: Walk through a glyph gate into an ASCII room
+    Description: Open a glyph gate on your floor and walk through into an ASCII remapping of your room. Don't blink: weeping angels close in when you look away. Walk back through to return to passthrough.
+    Tagline: ASCII room with weeping angels that only move unseen
     Icon: terminal
     Tint: {r: 0.1, g: 0.45, b: 0.22, a: 1}
     ScenePath: Assets/_Project/Demos/Ascii/Ascii.unity

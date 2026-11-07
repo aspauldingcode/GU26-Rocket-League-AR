@@ -1,0 +1,7 @@
+# Placeholder so the OBJ's mtllib line resolves. The prefab overrides materials.
+newmtl Stone
+Kd 0.35 0.38 0.32
+Ks 0.05 0.05 0.05
+Ns 8
+d 1
+illum 1

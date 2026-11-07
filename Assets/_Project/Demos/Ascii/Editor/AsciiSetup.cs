@@ -1,6 +1,7 @@
 using CardboardXR.Demos;
 using CardboardXR.Demos.Ascii;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 namespace ProjectBootstrap
@@ -11,6 +12,10 @@ namespace ProjectBootstrap
         const string DepthMaskShaderPath = "Assets/_Project/Shaders/DepthMask.shader";
         const string AsciiShaderPath = "Assets/_Project/Demos/Ascii/Shaders/AsciiSurface.shader";
         const string AtlasPath = "Assets/_Project/Demos/Ascii/Textures/ascii_atlas.png";
+        const string AngelModelPath = "Assets/_Project/Demos/Ascii/Models/StoneAngel.obj";
+        const string AngelPrefabPath = "Assets/_Project/Demos/Ascii/Weeping Angel.prefab";
+        // The source OBJ is ~2.85 m tall; this brings it to roughly human height.
+        const float AngelScale = 0.7f;
 
         public override string Name => "Ascii";
         public override int Order => 60;
@@ -19,8 +24,8 @@ namespace ProjectBootstrap
         {
             Id = "ascii",
             Title = "ASCII Portal",
-            Description = "Open a glyph gate on your floor and walk through into an ASCII remapping of your room. Walk back through to return to passthrough.",
-            Tagline = "Walk through a glyph gate into an ASCII room",
+            Description = "Open a glyph gate on your floor and walk through into an ASCII remapping of your room. Don't blink: weeping angels close in when you look away. Walk back through to return to passthrough.",
+            Tagline = "ASCII room with weeping angels that only move unseen",
             Icon = "terminal",
             Tint = new Color(0.10f, 0.45f, 0.22f),
             Requirements = new DemoRequirements { SixDof = Need.On, Passthrough = Need.On, Hands = Need.On, ScanSurfaces = true },
@@ -52,6 +57,9 @@ namespace ProjectBootstrap
                 new Material(AssetDatabase.LoadAssetAtPath<Shader>(DepthMaskShaderPath)) { name = "Ascii Depth Mask" },
                 $"{folder}/Depth Mask.mat");
 
+            var stone = StereoBuilder.CreateMaterial("Angel Stone", unlit, new Color(0.22f, 0.28f, 0.2f), null, 1f, folder);
+            var angel = BuildAngelPrefab(folder, stone, ascii);
+
             var portal = new GameObject("Ascii Gate").AddComponent<AsciiWorld>();
             var serializedPortal = new SerializedObject(portal);
             serializedPortal.FindProperty("m_Glow").objectReferenceValue = glow;
@@ -64,6 +72,7 @@ namespace ProjectBootstrap
             var serializedDemo = new SerializedObject(demo);
             serializedDemo.FindProperty("m_PortalPrefab").objectReferenceValue = prefab;
             serializedDemo.FindProperty("m_AsciiMaterial").objectReferenceValue = ascii;
+            serializedDemo.FindProperty("m_AngelPrefab").objectReferenceValue = angel;
             serializedDemo.ApplyModifiedPropertiesWithoutUndo();
 
             // Pull the new "terminal" icon into the bundled Material Icons font.
@@ -76,6 +85,78 @@ namespace ProjectBootstrap
             MaterialAssets.Ensure();
             if (Application.isBatchMode)
                 EditorApplication.Exit(0);
+        }
+
+        // Batch: Unity -executeMethod ProjectBootstrap.AsciiSetup.EnsureAngels
+        // Imports the stone angel OBJ, builds the weeping-angel prefab, and wires Ascii.unity.
+        public static void EnsureAngels()
+        {
+            try
+            {
+                var folder = "Assets/_Project/Demos/Ascii";
+                AssetDatabase.ImportAsset(AngelModelPath, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+                var unlit = DemoAssets.Unlit;
+                var stone = StereoBuilder.CreateMaterial("Angel Stone", unlit, new Color(0.22f, 0.28f, 0.2f), null, 1f, folder);
+                var ascii = AssetDatabase.LoadAssetAtPath<Material>($"{folder}/Ascii Surface.mat");
+                var angel = BuildAngelPrefab(folder, stone, ascii);
+                WireAngelPrefab(angel);
+                AssetDatabase.SaveAssets();
+                Debug.Log($"[Ascii] Weeping angel prefab ready at {AngelPrefabPath}");
+            }
+            finally
+            {
+                if (Application.isBatchMode)
+                    EditorApplication.Exit(0);
+            }
+        }
+
+        static GameObject BuildAngelPrefab(string folder, Material stone, Material ascii)
+        {
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(AngelModelPath);
+            if (model == null)
+                throw new System.IO.FileNotFoundException("Stone angel OBJ missing at " + AngelModelPath);
+
+            var root = new GameObject("Weeping Angel");
+            root.AddComponent<WeepingAngel>();
+            var instance = (GameObject)PrefabUtility.InstantiatePrefab(model);
+            instance.name = "Stone Angel";
+            instance.transform.SetParent(root.transform, false);
+            instance.transform.localPosition = Vector3.zero;
+            instance.transform.localRotation = Quaternion.identity;
+            instance.transform.localScale = Vector3.one * AngelScale;
+
+            var skin = ascii != null ? ascii : stone;
+            foreach (var renderer in instance.GetComponentsInChildren<Renderer>(true))
+            {
+                renderer.sharedMaterial = skin;
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+            }
+
+            var path = $"{folder}/Weeping Angel.prefab";
+            var prefab = PrefabUtility.SaveAsPrefabAsset(root, path);
+            Object.DestroyImmediate(root);
+            return prefab;
+        }
+
+        static void WireAngelPrefab(GameObject angel)
+        {
+            var scenePath = "Assets/_Project/Demos/Ascii/Ascii.unity";
+            var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                var demo = root.GetComponent<AsciiDemo>();
+                if (demo == null)
+                    continue;
+                var serialized = new SerializedObject(demo);
+                serialized.FindProperty("m_AngelPrefab").objectReferenceValue = angel;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+                EditorSceneManager.MarkSceneDirty(scene);
+                EditorSceneManager.SaveScene(scene);
+                Debug.Log("[Ascii] Ascii.unity now references the weeping angel prefab");
+                return;
+            }
+            Debug.LogError("[Ascii] Ascii Demo not found in Ascii.unity");
         }
 
         static Texture2D LoadAtlas()

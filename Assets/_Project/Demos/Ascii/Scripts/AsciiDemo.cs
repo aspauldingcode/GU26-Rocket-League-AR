@@ -13,10 +13,12 @@ namespace CardboardXR.Demos.Ascii
     {
         [SerializeField] GameObject m_PortalPrefab;
         [SerializeField] Material m_AsciiMaterial;
+        [SerializeField] GameObject m_AngelPrefab;
 
         CoreServices m_Core;
         AsciiWorld m_Portal;
         AsciiSurfaces m_Surfaces;
+        AsciiAngels m_Angels;
         RectTransform m_Panel;
         TMP_Text m_Hint;
         AudioSource m_Audio;
@@ -43,6 +45,9 @@ namespace CardboardXR.Demos.Ascii
                 FindWalls(planes, core.Boundary);
             m_Surfaces.Configure(m_AsciiMaterial, planes, core.Passthrough);
 
+            m_Angels = gameObject.AddComponent<AsciiAngels>();
+            m_Angels.Configure(m_AngelPrefab, core.Head);
+
             m_Audio = gameObject.AddComponent<AudioSource>();
             m_Audio.playOnAwake = false;
             m_Whoosh = Whoosh();
@@ -61,6 +66,12 @@ namespace CardboardXR.Demos.Ascii
                 m_Surfaces.SetGate(null);
                 Destroy(m_Surfaces);
                 m_Surfaces = null;
+            }
+            if (m_Angels != null)
+            {
+                m_Angels.SetInside(false);
+                Destroy(m_Angels);
+                m_Angels = null;
             }
             if (m_Planes != null && m_PreviousDetection.HasValue)
                 m_Planes.requestedDetectionMode = m_PreviousDetection.Value;
@@ -102,6 +113,7 @@ namespace CardboardXR.Demos.Ascii
         void OnCrossed(bool inside)
         {
             m_Audio.PlayOneShot(m_Whoosh, 0.7f);
+            m_Angels?.SetInside(inside);
             UpdateHint();
         }
 
@@ -113,6 +125,7 @@ namespace CardboardXR.Demos.Ascii
             portal.Crossed -= OnCrossed;
             m_Portal = null;
             m_Surfaces?.SetGate(null);
+            m_Angels?.SetInside(false);
             m_Audio.PlayOneShot(m_Whoosh, 0.3f);
             Debug.Log("[Ascii] Closing the gate to move it");
             portal.Close(() =>
@@ -136,7 +149,7 @@ namespace CardboardXR.Demos.Ascii
             else if (!m_Portal.IsInside)
                 m_Hint.text = "Your room's surfaces are ASCII through the gate.\nWalk through to step inside. Unplug first if it's on a cable.";
             else
-                m_Hint.text = "You're inside the ASCII remapping. Walk back through to return.";
+                m_Hint.text = "Don't blink. The angels only move when you look away.\nWalk back through the gate to leave.";
         }
 
         void BuildPanel()

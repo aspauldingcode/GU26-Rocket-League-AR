@@ -150,6 +150,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: CardboardXR.Demos.Ascii::CardboardXR.Demos.Ascii.AsciiDemo
   m_PortalPrefab: {fileID: 5000584320375938865, guid: abf3ca58f462746748b8a4c1ac419c67, type: 3}
   m_AsciiMaterial: {fileID: 2100000, guid: 6e9d04a292d7d465aafe5d9e89dfdd5d, type: 2}
+  m_AngelPrefab: {fileID: 2672267045002841990, guid: e749b1a43b3d744e483d70d542d819b6, type: 3}
 --- !u!4 &484134579
 Transform:
   m_ObjectHideFlags: 0
