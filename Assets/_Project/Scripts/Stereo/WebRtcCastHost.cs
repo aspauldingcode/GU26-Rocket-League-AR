@@ -11,8 +11,8 @@ namespace CardboardXR.Stereo
     {
         const int k_Width = 640;
         const int k_Height = 360;
-        const int k_JpgQuality = 45;
-        const float k_FrameInterval = 1f / 10f;
+        const int k_JpgQuality = 50;
+        const float k_FrameInterval = 1f / 12f;
 
         [SerializeField] StereoRig m_Rig;
 
@@ -43,7 +43,7 @@ namespace CardboardXR.Stereo
 
             EnsureCapture();
             m_Casting = true;
-            m_NextFrame = Time.unscaledTime + 1f;
+            m_NextFrame = Time.unscaledTime + 0.35f;
             // Open the WKWebView on the next frame so SetMono's camera rebuild finishes first.
             StartCoroutine(OpenHostPage());
             Debug.Log($"[Cast] Sharing mono UI on room {m_Room}");
@@ -56,7 +56,7 @@ namespace CardboardXR.Stereo
                 yield break;
             m_WebView ??= gameObject.AddComponent<WebRtcCastWebView>();
             m_WebView.Open(WebRtcCast.HostUrl(m_Room));
-            m_NextFrame = Time.unscaledTime + 0.75f;
+            m_NextFrame = Time.unscaledTime + 0.25f;
         }
 
         // Drops a stale host and joins a fresh laptop room (or mints one).

@@ -97,11 +97,16 @@ namespace CardboardXR.Hands
             m_Button.gameObject.SetActive(false);
         }
 
-        void OnEnable() => SettingsPanelHub.OpenRequested += Open;
+        void OnEnable()
+        {
+            SettingsPanelHub.OpenRequested += Open;
+            SettingsPanelHub.CloseRequested += Close;
+        }
 
         void OnDisable()
         {
             SettingsPanelHub.OpenRequested -= Open;
+            SettingsPanelHub.CloseRequested -= Close;
             ShowButton(false);
         }
 
