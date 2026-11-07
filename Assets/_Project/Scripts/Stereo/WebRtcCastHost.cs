@@ -31,12 +31,12 @@ namespace CardboardXR.Stereo
 
         public void Configure(StereoRig rig) => m_Rig = rig;
 
-        public void StartCast()
+        public void StartCast(string room = null)
         {
             if (m_Casting)
                 return;
 
-            m_Room = WebRtcCast.NewRoomCode();
+            m_Room = string.IsNullOrWhiteSpace(room) ? WebRtcCast.NewRoomCode() : room.Trim().ToLowerInvariant();
             m_WasMono = m_Rig != null && m_Rig.IsMono;
             if (m_Rig != null)
                 m_Rig.SetMono(true);
@@ -49,11 +49,11 @@ namespace CardboardXR.Stereo
             Debug.Log($"[Cast] Sharing mono UI on room {m_Room}");
         }
 
-        // New room + QR: drops stale PeerJS host ids so viewers can re-pair cleanly.
-        public void RestartCast()
+        // Drops a stale host and joins a fresh laptop room (or mints one).
+        public void RestartCast(string room = null)
         {
             StopCast();
-            StartCast();
+            StartCast(room);
         }
 
         // Same room, fresh host page (clears a wedged PeerJS peer without changing the QR).

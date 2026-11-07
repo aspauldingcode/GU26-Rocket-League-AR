@@ -44,6 +44,37 @@ namespace CardboardXR.Stereo
             return next;
         }
 
+        // Laptop page QR, or a bare room code typed/scanned from the site.
+        public static bool TryParseRoom(string text, out string room)
+        {
+            room = null;
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+            text = text.Trim();
+            if (System.Text.RegularExpressions.Regex.IsMatch(text, @"^[a-zA-Z0-9]{4,12}$"))
+            {
+                room = text.ToLowerInvariant();
+                return true;
+            }
+            if (!Uri.TryCreate(text, UriKind.Absolute, out var uri))
+                return false;
+            var query = uri.Query;
+            if (string.IsNullOrEmpty(query))
+                return false;
+            foreach (var part in query.TrimStart('?').Split('&'))
+            {
+                var kv = part.Split(new[] { '=' }, 2);
+                if (kv.Length != 2 || !kv[0].Equals("room", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var value = Uri.UnescapeDataString(kv[1]).Trim().ToLowerInvariant();
+                if (!System.Text.RegularExpressions.Regex.IsMatch(value, @"^[a-z0-9]{4,12}$"))
+                    return false;
+                room = value;
+                return true;
+            }
+            return false;
+        }
+
         // Black modules on white, for a RawImage in the Material cast panel.
         public static Texture2D MakeQr(string text, int size = 256)
         {

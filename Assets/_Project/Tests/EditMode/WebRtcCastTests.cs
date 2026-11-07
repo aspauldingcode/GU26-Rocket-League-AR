@@ -67,6 +67,29 @@ namespace CardboardXR.Stereo.Tests
         }
 
         [Test]
+        public void TryParseRoomReadsLaptopQrUrls()
+        {
+            Assert.That(WebRtcCast.TryParseRoom("Abcd1234", out var bare), Is.True);
+            Assert.That(bare, Is.EqualTo("abcd1234"));
+
+            var url = WebRtcCast.ViewerUrl("demo42ab");
+            Assert.That(WebRtcCast.TryParseRoom(url, out var fromUrl), Is.True);
+            Assert.That(fromUrl, Is.EqualTo("demo42ab"));
+
+            Assert.That(WebRtcCast.TryParseRoom("https://example.com/", out _), Is.False);
+        }
+
+        [Test]
+        public void StartCastCanJoinAnExistingRoom()
+        {
+            var host = new GameObject("Cast Host").AddComponent<WebRtcCastHost>();
+            host.StartCast("laptop01");
+            Assert.That(host.Room, Is.EqualTo("laptop01"));
+            host.StopCast();
+            Object.DestroyImmediate(host.gameObject);
+        }
+
+        [Test]
         public void QrTextureIsSquare()
         {
             var texture = WebRtcCast.MakeQr(WebRtcCast.ViewerUrl("abcd1234"), 128);

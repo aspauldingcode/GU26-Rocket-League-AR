@@ -1,6 +1,5 @@
-/* Local AR cast: the phone app publishes a mono UI view; this page only watches.
-   Signaling uses PeerJS (IDs stay private in the room code). Media is peer to peer.
-   The public GitHub Pages site never publishes a camera and never hosts a global stream. */
+/* Phone hosts the mono AR UI; this page only watches.
+   Open the site, scan the on-screen QR from Share view in the app. */
 (function () {
   "use strict";
 
@@ -14,31 +13,21 @@
   var fromApp = params.get("unity") === "1";
 
   var statusEl = document.getElementById("status");
-  var detailEl = document.getElementById("detail");
   var videoEl = document.getElementById("view");
   var stageEl = document.getElementById("stage");
+  var pairEl = document.getElementById("pair");
   var roomEl = document.getElementById("room");
-  var formEl = document.getElementById("join");
-  var roomInput = document.getElementById("room-input");
+  var qrEl = document.getElementById("qr");
   var actionsEl = document.getElementById("actions");
   var reconnectBtn = document.getElementById("reconnect");
   var leaveBtn = document.getElementById("leave");
 
-  function setStatus(title, detail) {
-    if (statusEl) statusEl.textContent = title || "";
-    if (detailEl) detailEl.textContent = detail || "";
+  function setStatus(text) {
+    if (statusEl) statusEl.textContent = text || "";
   }
 
-  function showStage(on) {
-    if (stageEl) stageEl.hidden = !on;
-  }
-
-  function showJoin(on) {
-    if (formEl) formEl.hidden = !on;
-  }
-
-  function showActions(on) {
-    if (actionsEl) actionsEl.hidden = !on;
+  function show(el, on) {
+    if (el) el.hidden = !on;
   }
 
   function hostPeerId(code) {
@@ -52,30 +41,49 @@
     return n;
   }
 
-  // Exported for node tests.
-  window.__castLogic = { hostPeerId: hostPeerId, nextRetryMs: nextRetryMs, RETRY_START_MS: RETRY_START_MS, RETRY_MAX_MS: RETRY_MAX_MS };
+  function newRoomCode() {
+    var alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+    var out = "";
+    var bytes = new Uint8Array(8);
+    (window.crypto || window.msCrypto).getRandomValues(bytes);
+    for (var i = 0; i < bytes.length; i++) out += alphabet[bytes[i] % alphabet.length];
+    return out;
+  }
+
+  function pageUrlForRoom(code) {
+    return location.origin + location.pathname + "?room=" + encodeURIComponent(code);
+  }
+
+  function showPairingQr(code) {
+    if (roomEl) roomEl.textContent = code;
+    if (!qrEl) return;
+    var data = encodeURIComponent(pageUrlForRoom(code));
+    qrEl.src = "https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=" + data;
+    qrEl.alt = "QR for room " + code;
+    show(pairEl, true);
+  }
+
+  window.__castLogic = {
+    hostPeerId: hostPeerId,
+    nextRetryMs: nextRetryMs,
+    newRoomCode: newRoomCode,
+    RETRY_START_MS: RETRY_START_MS,
+    RETRY_MAX_MS: RETRY_MAX_MS,
+  };
 
   function destroyPeer(peer, call) {
-    try {
-      if (call) call.close();
-    } catch (e) {}
-    try {
-      if (peer && !peer.destroyed) peer.destroy();
-    } catch (e) {}
+    try { if (call) call.close(); } catch (e) {}
+    try { if (peer && !peer.destroyed) peer.destroy(); } catch (e) {}
   }
 
   function clearVideo() {
-    if (!videoEl) return;
-    videoEl.srcObject = null;
+    if (videoEl) videoEl.srcObject = null;
   }
 
-  // Never open the phone or laptop camera from this page.
   function blockCameraSync() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
     navigator.mediaDevices.getUserMedia = function () {
-      return Promise.reject(
-        new Error("This page only watches the AR app. It does not use your camera.")
-      );
+      return Promise.reject(new Error("This page only watches the AR app."));
     };
   }
 
@@ -91,9 +99,7 @@
         if (window.Peer) resolve(window.Peer);
         else reject(new Error("PeerJS failed to load"));
       };
-      script.onerror = function () {
-        reject(new Error("Could not load PeerJS"));
-      };
+      script.onerror = function () { reject(new Error("Could not load PeerJS")); };
       document.head.appendChild(script);
     });
   }
@@ -104,15 +110,16 @@
     videoEl.playsInline = true;
     videoEl.muted = true;
     videoEl.play().catch(function () {});
-    showStage(true);
-    setStatus("Live from the AR app", "Peer connection is up. This is a private room, not a public broadcast.");
+    show(pairEl, false);
+    show(stageEl, true);
+    setStatus("Live");
   }
 
   function startViewer(Peer, code) {
-    showJoin(false);
-    showActions(true);
-    if (roomEl) roomEl.textContent = code;
-    showStage(true);
+    show(actionsEl, true);
+    showPairingQr(code);
+    show(stageEl, false);
+    setStatus("Scan with Share view in the app");
 
     var peer = null;
     var callRef = null;
@@ -131,7 +138,9 @@
     function schedule(reason) {
       if (stopped) return;
       clearVideo();
-      setStatus("Reconnecting…", reason || "Trying the AR app again.");
+      show(pairEl, true);
+      show(stageEl, false);
+      setStatus(reason || "Reconnecting…");
       clearTimer();
       timer = setTimeout(connect, delay);
       delay = nextRetryMs(delay);
@@ -140,7 +149,7 @@
     function wireCall(gen) {
       callRef = peer.call(hostPeerId(code), new MediaStream());
       if (!callRef) {
-        schedule("Could not call the app. Is Share view on?");
+        schedule("Could not reach the phone");
         return;
       }
       callRef.on("stream", function (stream) {
@@ -149,11 +158,10 @@
         attachStream(stream);
       });
       callRef.on("close", function () {
-        if (gen === generation && !stopped) schedule("Stream paused. Retrying the same room.");
+        if (gen === generation && !stopped) schedule("Stream paused. Retrying…");
       });
-      callRef.on("error", function (err) {
-        if (gen === generation && !stopped)
-          schedule(err && err.message ? err.message : "Call error. Retrying.");
+      callRef.on("error", function () {
+        if (gen === generation && !stopped) schedule("Call error. Retrying…");
       });
     }
 
@@ -165,34 +173,26 @@
       peer = null;
       callRef = null;
       clearVideo();
-      setStatus("Connecting…", "Room " + code);
 
       peer = new Peer(undefined, { debug: 1 });
       peer.on("open", function () {
         if (gen !== generation || stopped) return;
-        setStatus("Calling the phone…", "Room " + code);
+        setStatus("Waiting for the phone…");
         wireCall(gen);
       });
       peer.on("disconnected", function () {
         if (gen !== generation || stopped || !peer || peer.destroyed) return;
-        try {
-          peer.reconnect();
-        } catch (e) {
-          schedule("Signaling dropped. Retrying.");
-        }
+        try { peer.reconnect(); }
+        catch (e) { schedule("Signaling dropped. Retrying…"); }
       });
       peer.on("error", function (err) {
         if (gen !== generation || stopped) return;
         var type = err && err.type;
         if (type === "peer-unavailable") {
-          schedule("Phone not sharing this room yet, or it made a new QR. Retrying.");
+          schedule("Open Share view and scan this QR");
           return;
         }
-        if (type === "network" || type === "disconnected" || type === "socket-error" || type === "server-error") {
-          schedule(err.message || "Network hiccup. Retrying.");
-          return;
-        }
-        schedule(err && err.message ? err.message : "Viewer error. Retrying.");
+        schedule("Retrying…");
       });
     }
 
@@ -206,37 +206,26 @@
         stopped = true;
         clearTimer();
         destroyPeer(peer, callRef);
-        peer = null;
-        callRef = null;
-        clearVideo();
-        showActions(false);
-        setStatus("Left the room", "Enter a room code again, or scan a fresh QR from the phone.");
-        history.replaceState({}, "", location.pathname);
-        showJoin(true);
+        location.search = "?room=" + encodeURIComponent(newRoomCode());
       },
     };
 
     if (reconnectBtn) reconnectBtn.onclick = function () { window.__viewer.reconnect(); };
     if (leaveBtn) leaveBtn.onclick = function () { window.__viewer.leave(); };
-
     connect();
   }
 
-  // Host mode runs inside the app WebView only. Frames arrive from Unity as JPEG data URLs.
   function startHost(Peer, code) {
     if (!fromApp) {
-      setStatus(
-        "Streaming starts in the AR app",
-        "Open Share view from the phone UI. This website only watches; it will not publish a camera."
-      );
-      showJoin(false);
+      setStatus("Open this from the AR app");
+      show(pairEl, false);
       return;
     }
 
-    showJoin(false);
-    showActions(false);
+    show(pairEl, false);
+    show(actionsEl, false);
     if (roomEl) roomEl.textContent = code;
-    setStatus("Ready to share", "Waiting for a viewer to open this room.");
+    setStatus("Sharing " + code);
 
     var canvas = document.createElement("canvas");
     canvas.width = 640;
@@ -244,9 +233,6 @@
     var ctx = canvas.getContext("2d");
     ctx.fillStyle = "#102018";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#d7ffe6";
-    ctx.font = "20px system-ui,sans-serif";
-    ctx.fillText("Waiting for AR frames…", 24, 48);
 
     var stream = canvas.captureStream(12);
     var img = new Image();
@@ -258,9 +244,7 @@
 
     function closeCalls() {
       for (var i = 0; i < calls.length; i++) {
-        try {
-          calls[i].close();
-        } catch (e) {}
+        try { calls[i].close(); } catch (e) {}
       }
       calls = [];
     }
@@ -274,17 +258,26 @@
       peer = null;
     }
 
+    function scheduleBind() {
+      if (stopped) return;
+      setStatus("Rebinding host…");
+      if (bindTimer) clearTimeout(bindTimer);
+      bindTimer = setTimeout(function () {
+        bindTimer = null;
+        bindPeer();
+        delay = nextRetryMs(delay);
+      }, delay);
+    }
+
     function bindPeer() {
       if (stopped) return;
       closeCalls();
       destroyPeer(peer, null);
-      peer = null;
-
       peer = new Peer(hostPeerId(code), { debug: 1 });
       peer.on("open", function () {
         if (stopped) return;
         delay = RETRY_START_MS;
-        setStatus("Sharing room " + code, "Viewers who scan the in-app QR can watch.");
+        setStatus("Sharing " + code);
       });
       peer.on("call", function (call) {
         if (stopped) {
@@ -293,46 +286,26 @@
         }
         call.answer(stream);
         calls.push(call);
-        setStatus("Viewer connected", "Sending the mono AR UI over WebRTC.");
+        setStatus("Viewer connected");
         call.on("close", function () {
           calls = calls.filter(function (c) { return c !== call; });
-          if (!stopped && calls.length === 0)
-            setStatus("Viewer left", "Still sharing. Another viewer can join with the same QR.");
+          if (!stopped && calls.length === 0) setStatus("Sharing " + code);
         });
       });
       peer.on("disconnected", function () {
         if (stopped || !peer || peer.destroyed) return;
-        try {
-          peer.reconnect();
-        } catch (e) {
-          scheduleBind("Host signaling dropped. Rebinding.");
-        }
+        try { peer.reconnect(); } catch (e) { scheduleBind(); }
       });
       peer.on("error", function (err) {
         if (stopped) return;
         var type = err && err.type;
-        // Stale PeerJS id after a quick stop/start: wait and take the same room id again.
-        if (type === "unavailable-id") {
-          scheduleBind("Old host id still lingering. Retrying the same room.");
+        if (type === "unavailable-id" || type === "network" || type === "disconnected" ||
+            type === "socket-error" || type === "server-error") {
+          scheduleBind();
           return;
         }
-        if (type === "network" || type === "disconnected" || type === "socket-error" || type === "server-error") {
-          scheduleBind(err.message || "Host network hiccup. Rebinding.");
-          return;
-        }
-        setStatus("Host error", err && err.message ? err.message : String(err));
+        setStatus(err && err.message ? err.message : "Host error");
       });
-    }
-
-    function scheduleBind(reason) {
-      if (stopped) return;
-      setStatus("Rebinding host…", reason || "Retrying PeerJS host.");
-      if (bindTimer) clearTimeout(bindTimer);
-      bindTimer = setTimeout(function () {
-        bindTimer = null;
-        bindPeer();
-        delay = nextRetryMs(delay);
-      }, delay);
     }
 
     window.__cast = {
@@ -357,54 +330,25 @@
 
     if (role === "host") {
       if (!room) {
-        setStatus("Missing room", "The AR app should open this page with a room code.");
+        setStatus("Missing room");
         return;
       }
       loadPeerJs()
-        .then(function (Peer) {
-          startHost(Peer, room);
-        })
-        .catch(function (err) {
-          setStatus("Could not start sharing", err.message || String(err));
-        });
+        .then(function (Peer) { startHost(Peer, room); })
+        .catch(function (err) { setStatus(err.message || String(err)); });
       return;
     }
 
-    if (room) {
-      loadPeerJs()
-        .then(function (Peer) {
-          startViewer(Peer, room);
-        })
-        .catch(function (err) {
-          setStatus("Could not start viewer", err.message || String(err));
-        });
-      return;
+    if (!room) {
+      room = newRoomCode();
+      history.replaceState({}, "", "?room=" + encodeURIComponent(room));
     }
 
-    showJoin(true);
-    showStage(false);
-    showActions(false);
-    setStatus(
-      "Watch a live AR demo",
-      "Scan the QR from Share view in the app, or paste the room code. This page does not use your camera and does not show a public stream."
-    );
-
-    if (formEl) {
-      formEl.addEventListener("submit", function (event) {
-        event.preventDefault();
-        var value = (roomInput && roomInput.value ? roomInput.value : "").trim().toLowerCase();
-        if (!/^[a-z0-9]{4,12}$/.test(value)) {
-          setStatus("Check the room code", "Use the short code under the QR in the app.");
-          return;
-        }
-        location.search = "?room=" + encodeURIComponent(value);
-      });
-    }
+    loadPeerJs()
+      .then(function (Peer) { startViewer(Peer, room); })
+      .catch(function (err) { setStatus(err.message || String(err)); });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", boot);
-  } else {
-    boot();
-  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
 })();

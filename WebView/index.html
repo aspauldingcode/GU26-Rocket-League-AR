@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Rocket League AR viewer</title>
+    <title>Rocket League AR</title>
     <style>
       :root {
         color-scheme: dark;
@@ -12,33 +12,50 @@
         --muted: #9bb5a4;
         --line: #24352c;
         --accent: #3dff8a;
-        --card: #132019;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
-        font: 16px/1.45 system-ui, -apple-system, Segoe UI, sans-serif;
+        font: 16px/1.4 system-ui, -apple-system, sans-serif;
         background: var(--bg);
         color: var(--fg);
-        padding: 1.5rem 1rem 2rem;
+        display: grid;
+        place-items: center;
+        padding: 1.25rem;
       }
       main {
-        width: min(40rem, 100%);
-        margin: 0 auto;
+        width: min(22rem, 100%);
+        text-align: center;
       }
       h1 {
-        margin: 0 0 0.35rem;
-        font-size: 1.6rem;
-        font-weight: 700;
+        margin: 0;
+        font-size: 1.35rem;
       }
-      p { color: var(--muted); margin: 0.4rem 0; }
       #status {
-        margin-top: 1rem;
-        font-weight: 600;
-        color: var(--fg);
+        margin: 0.6rem 0 0;
+        color: var(--muted);
+        min-height: 1.4em;
       }
-      #detail { color: var(--muted); }
+      #pair {
+        margin: 1.1rem auto 0;
+      }
+      #qr {
+        width: min(16rem, 70vw);
+        aspect-ratio: 1;
+        background: #fff;
+        border-radius: 0.75rem;
+        padding: 0.7rem;
+        display: block;
+        margin: 0 auto;
+      }
+      #room {
+        display: inline-block;
+        margin-top: 0.75rem;
+        color: var(--accent);
+        font: 600 1.05rem/1 ui-monospace, Menlo, monospace;
+        letter-spacing: 0.04em;
+      }
       #stage {
         margin-top: 1rem;
         background: #000;
@@ -48,58 +65,31 @@
         aspect-ratio: 16 / 9;
       }
       #view {
-        display: block;
         width: 100%;
         height: 100%;
         object-fit: contain;
+        display: block;
         background: #000;
       }
-      #join {
-        margin-top: 1.25rem;
-        padding: 1rem;
-        background: var(--card);
-        border: 1px solid var(--line);
-        border-radius: 0.75rem;
-        display: grid;
-        gap: 0.6rem;
-      }
-      label { font-size: 0.9rem; color: var(--muted); }
-      input {
-        width: 100%;
-        padding: 0.7rem 0.8rem;
-        border-radius: 0.5rem;
-        border: 1px solid var(--line);
-        background: #0b1210;
-        color: var(--fg);
-        font: inherit;
+      #actions {
+        margin-top: 0.85rem;
+        display: flex;
+        justify-content: center;
+        gap: 0.5rem;
       }
       button {
         border: 0;
         border-radius: 0.5rem;
-        padding: 0.75rem 1rem;
+        padding: 0.65rem 0.95rem;
         background: var(--accent);
         color: #042012;
-        font: 600 1rem/1 system-ui, sans-serif;
+        font: 600 0.95rem/1 system-ui, sans-serif;
         cursor: pointer;
       }
-      #actions {
-        margin-top: 0.9rem;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.6rem;
-      }
-      #actions button.secondary {
+      button.secondary {
         background: transparent;
         color: var(--fg);
         border: 1px solid var(--line);
-      }
-      .meta {
-        margin-top: 1rem;
-        font-size: 0.9rem;
-      }
-      code {
-        color: var(--accent);
-        word-break: break-all;
       }
       [hidden] { display: none !important; }
     </style>
@@ -107,19 +97,12 @@
   <body>
     <main>
       <h1>Rocket League AR</h1>
-      <p>
-        Private demo viewer for the GU 2026 AR app. Open this from the in-app QR so you can watch
-        the phone UI over WebRTC on the same session.
-      </p>
-
       <p id="status">Starting…</p>
-      <p id="detail"></p>
 
-      <form id="join" hidden>
-        <label for="room-input">Room code from the app</label>
-        <input id="room-input" name="room" autocomplete="off" spellcheck="false" placeholder="abcd1234" />
-        <button type="submit">Watch this room</button>
-      </form>
+      <div id="pair">
+        <img id="qr" alt="Pairing QR code" width="280" height="280" />
+        <div id="room">····</div>
+      </div>
 
       <div id="stage" hidden>
         <video id="view" autoplay playsinline muted></video>
@@ -127,14 +110,8 @@
 
       <div id="actions" hidden>
         <button type="button" id="reconnect">Reconnect</button>
-        <button type="button" id="leave" class="secondary">Leave room</button>
+        <button type="button" id="leave" class="secondary">New QR</button>
       </div>
-
-      <p class="meta">Room: <code id="room">none</code></p>
-      <p class="meta">
-        This page never turns on an iPhone or laptop camera, and it does not broadcast the AR
-        experience to the open internet. Only people with the room code from the app can watch.
-      </p>
     </main>
     <script src="webrtc.js"></script>
   </body>
