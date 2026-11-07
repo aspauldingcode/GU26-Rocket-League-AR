@@ -167,7 +167,7 @@
 
           } catch (err) {
             console.error("Error sharing screen: ", err);
-            document.getElementById('statusText').innerText = "Failed to share screen. Ensure you are on iOS 16.4+.";
+            document.getElementById('statusText').innerText = `Error: ${err.name} - ${err.message}`;
           }
         });
       }
