@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Unity WebRTC Viewer</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #222; color: #fff; margin: 0; padding: 20px; }
+        video { width: 100%; max-width: 600px; background: #000; border-radius: 8px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h2>Live Unity Stream</h2>
+    <p id="status">Connecting to signaling server...</p>
+    <video id="videoElement" autoplay playsinline muted></video>
+
+    <script>
+        const video = document.getElementById('videoElement');
+        const statusText = document.getElementById('status');
+
+        // Connect to your local Docker signaling server
+        const SIGNALING_SERVER_URL = "ws://192.168.X.X:8080"; 
+        const ws = new WebSocket(SIGNALING_SERVER_URL);
+        
+        // No STUN/TURN servers needed since this is purely on your local LAN
+        const config = { iceServers: [] };
+        let peerConnection;
+
+        ws.onopen = () => {
+            statusText.innerText = "Connected to signaling. Waiting for Unity...";
+        };
+
+        ws.onmessage = async (event) => {
+            const message = JSON.parse(event.data);
+
+            if (!peerConnection) {
+                startWebRTC();
+            }
+
+            // Unity will send an 'offer' to start the stream
+            if (message.type === 'offer') {
+                statusText.innerText = "Offer received from Unity. Connecting...";
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(message));
+                
+                // Create an answer and send it back to Unity
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                ws.send(JSON.stringify(peerConnection.localDescription));
+            } 
+            // Handle network routing data (ICE candidates)
+            else if (message.type === 'candidate') {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+            }
+        };
+
+        function startWebRTC() {
+            peerConnection = new RTCPeerConnection(config);
+
+            // When Unity establishes the peer-to-peer connection, play the video
+            peerConnection.ontrack = (event) => {
+                video.srcObject = event.streams[0];
+                statusText.innerText = "Live stream connected!";
+            };
+
+            // Send our ICE candidates back to Unity so it knows how to route the video
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    ws.send(JSON.stringify({
+                        type: 'candidate',
+                        candidate: event.candidate
+                    }));
+                }
+            };
+        }
+    </script>
+</body>
+</html>
