@@ -18,7 +18,9 @@ namespace CardboardXR.Stereo
     {
         const string k_SavedViewerKey = "CardboardXR.ViewerUrl";
         const string k_ScanPrompt = "Point the camera at the QR code on your viewer.";
-        const string k_CastScanPrompt = "Look at the QR on the laptop.";
+        // Shown on the world-space Share panel; URL must match WebRtcCast.PagesBaseUrl.
+        const string k_CastScanPrompt =
+            "Look at the QR code from\nhttps://aspauldingcode.github.io/GU26-Rocket-League-AR";
         const float k_RetryDelaySeconds = 2.5f;
         const float k_ToastSeconds = 3f;
         const float k_WorldCastDistance = 0.9f;
@@ -353,11 +355,11 @@ namespace CardboardXR.Stereo
             {
                 if (WebRtcCast.TryParseRoom(text, out var room))
                 {
-                    // Valid GH Pages room: start mono cast immediately, no confirm UI.
+                    // Valid GH Pages room: start off-screen mono cast; Pages flips QR → live stream.
                     StopWorldCastScan();
                     m_Cast.StartCast(room);
                     UpdateShareLabel();
-                    ShowToast($"Sharing {room}");
+                    ShowToast("Streaming to the laptop…");
                     Debug.Log($"[Cast] Auto-started room {room}");
                     return;
                 }
@@ -428,15 +430,15 @@ namespace CardboardXR.Stereo
         void BuildWorldCastUi()
         {
             m_WorldCastPanel = M3.Canvas("Cast Scan", m_Rig != null ? m_Rig.transform : transform,
-                new Vector2(480f, 340f), k_WorldCastDistance, M3Theme.SurfaceContainer, M3Theme.k_ShapePanel);
+                new Vector2(520f, 380f), k_WorldCastDistance, M3Theme.SurfaceContainer, M3Theme.k_ShapePanel);
             m_WorldCastPanel.gameObject.AddComponent<GazeCanvas>();
 
-            M3.Text("Title", m_WorldCastPanel, "Share screen", M3Theme.Type.TitleMedium, new Vector2(0f, 140f),
-                new Vector2(440f, 32f));
+            M3.Text("Title", m_WorldCastPanel, "Share screen", M3Theme.Type.TitleMedium, new Vector2(0f, 158f),
+                new Vector2(480f, 32f));
             m_WorldCastStatus = M3.Text("Status", m_WorldCastPanel, k_CastScanPrompt, M3Theme.Type.BodyMedium,
-                new Vector2(0f, 108f), new Vector2(440f, 28f), M3Theme.OnSurfaceVariant);
+                new Vector2(0f, 118f), new Vector2(480f, 64f), M3Theme.OnSurfaceVariant);
 
-            var previewFrame = M3.Surface("Preview Frame", m_WorldCastPanel, new Vector2(0f, 10f), new Vector2(400f, 180f),
+            var previewFrame = M3.Surface("Preview Frame", m_WorldCastPanel, new Vector2(0f, 0f), new Vector2(400f, 160f),
                 Color.black, M3Theme.k_ShapeSmall);
             var previewObject = new GameObject("Preview", typeof(RawImage), typeof(AspectRatioFitter));
             previewObject.transform.SetParent(previewFrame.rectTransform, false);
@@ -447,7 +449,7 @@ namespace CardboardXR.Stereo
             m_WorldCastFitter = previewObject.GetComponent<AspectRatioFitter>();
             m_WorldCastFitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
 
-            M3.Button("Cancel", m_WorldCastPanel, "Cancel", M3Button.Variant.Tonal, new Vector2(0f, -136f),
+            M3.Button("Cancel", m_WorldCastPanel, "Cancel", M3Button.Variant.Tonal, new Vector2(0f, -152f),
                 StopWorldCastScan, "close", 160f);
             m_WorldCastPanel.gameObject.SetActive(false);
         }

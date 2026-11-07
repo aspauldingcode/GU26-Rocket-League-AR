@@ -151,22 +151,26 @@
 
   function attachStream(stream) {
     if (!videoEl) return;
-    videoEl.srcObject = stream;
-    videoEl.playsInline = true;
-    videoEl.muted = true;
-    videoEl.autoplay = true;
-    videoEl.play().catch(function () {});
+    // Drop the QR the moment the phone's mono cast arrives.
+    if (qrEl) qrEl.innerHTML = "";
     show(pairEl, false);
     show(stageEl, true);
     show(actionsEl, true);
     if (document.body) document.body.classList.add("live");
-    setStatus("live");
+    setStatus("live — mono AR stream");
+
+    videoEl.srcObject = stream;
+    videoEl.playsInline = true;
+    videoEl.muted = true;
+    videoEl.autoplay = true;
+    var play = videoEl.play();
+    if (play && typeof play.catch === "function") play.catch(function () {});
   }
 
   function startViewer(Peer, code) {
     show(actionsEl, true);
     show(stageEl, false);
-    setStatus("scan this QR with Share view");
+    setStatus("open Share on the phone, then look at this QR");
 
     var peer = null;
     var callRef = null;
@@ -415,7 +419,7 @@
 
     // Draw the QR before PeerJS loads so Safari always has something to scan.
     showPairingQr(room);
-    setStatus("scan with Share — stream starts automatically");
+    setStatus("open Share on the phone and look at this QR — stream starts automatically");
 
     loadPeerJs()
       .then(function (Peer) { startViewer(Peer, room); })
