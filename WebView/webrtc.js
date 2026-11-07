@@ -60,26 +60,73 @@
     if (roomEl) roomEl.textContent = code;
     if (!qrEl) return;
     var url = pageUrlForRoom(code);
-    qrEl.alt = "QR for room " + code;
     show(pairEl, true);
+    qrEl.innerHTML = "";
+    qrEl.setAttribute("aria-label", "QR for room " + code);
 
-    // Prefer local generator (no third-party image host). Fall back to public QR APIs.
-    try {
-      if (typeof qrcode === "function") {
-        var qr = qrcode(0, "M");
+    // Desktop Safari often fails on GIF data-URLs from createDataURL.
+    // Prefer SVG (and canvas PNG), then remote image hosts.
+    var make = window.qrcode || (typeof qrcode !== "undefined" ? qrcode : null);
+    if (typeof make === "function") {
+      try {
+        var qr = make(0, "M");
         qr.addData(url);
         qr.make();
-        qrEl.src = qr.createDataURL(6, 8);
+
+        qrEl.innerHTML = qr.createSvgTag(6, 8);
+        var svg = qrEl.querySelector("svg");
+        if (svg) {
+          svg.setAttribute("width", "240");
+          svg.setAttribute("height", "240");
+          svg.style.width = "240px";
+          svg.style.height = "240px";
+          svg.style.display = "block";
+          return;
+        }
+      } catch (e1) {}
+
+      try {
+        var qr2 = make(0, "M");
+        qr2.addData(url);
+        qr2.make();
+        var canvas = document.createElement("canvas");
+        var modules = qr2.getModuleCount();
+        var cell = 6;
+        var margin = 8;
+        var size = modules * cell + margin * 2;
+        canvas.width = size;
+        canvas.height = size;
+        var ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = "#000000";
+        for (var r = 0; r < modules; r++) {
+          for (var c = 0; c < modules; c++) {
+            if (qr2.isDark(r, c))
+              ctx.fillRect(margin + c * cell, margin + r * cell, cell, cell);
+          }
+        }
+        var img = document.createElement("img");
+        img.width = 240;
+        img.height = 240;
+        img.alt = "QR for room " + code;
+        img.src = canvas.toDataURL("image/png");
+        qrEl.appendChild(img);
         return;
-      }
-    } catch (e) {}
+      } catch (e2) {}
+    }
 
     var data = encodeURIComponent(url);
-    qrEl.src = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=10&data=" + data;
-    qrEl.onerror = function () {
-      qrEl.onerror = null;
-      qrEl.src = "https://quickchart.io/qr?size=240&text=" + data;
+    var remote = document.createElement("img");
+    remote.width = 240;
+    remote.height = 240;
+    remote.alt = "QR for room " + code;
+    remote.src = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=10&data=" + data;
+    remote.onerror = function () {
+      remote.onerror = null;
+      remote.src = "https://quickchart.io/qr?size=240&text=" + data;
     };
+    qrEl.appendChild(remote);
   }
 
   window.__castLogic = {

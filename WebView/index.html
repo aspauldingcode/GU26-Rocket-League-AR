@@ -58,6 +58,13 @@
       height: 240px;
       background: #fff;
       border: 1px solid #000;
+      overflow: hidden;
+    }
+    #qr svg, #qr img, #qr canvas {
+      display: block;
+      width: 240px;
+      height: 240px;
+      margin: 0 auto;
     }
     #room {
       margin-top: 8px;
@@ -99,7 +106,7 @@
           <div id="status">loading...</div>
 
           <div id="pair">
-            <img id="qr" alt="QR" width="240" height="240">
+            <div id="qr" role="img" aria-label="Pairing QR"></div>
             <div id="room">----</div>
           </div>
 
@@ -116,6 +123,10 @@
     </tr>
   </table>
   <script src="qrcode.min.js"></script>
+  <script>
+    /* Safari desktop: force a window global even if the UMD path is odd. */
+    if (typeof qrcode === "function") window.qrcode = qrcode;
+  </script>
   <script src="webrtc.js"></script>
 </body>
 </html>
