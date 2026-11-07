@@ -90,7 +90,8 @@ namespace CardboardXR.Demos.Ascii
             var core = CoreServices.Instance;
             if (core == null || m_World == null)
                 return;
-            var head = m_World.InverseTransformPoint(core.Head.position);
+            var head = m_Frame.InverseTransformPoint(core.Head.position);
+            head.z = -head.z;
             if (m_HasLastHead)
             {
                 var crossing = AsciiCrossing.Crossing(m_LastHead, head, DoorWidth / 2f, DoorHeight);
