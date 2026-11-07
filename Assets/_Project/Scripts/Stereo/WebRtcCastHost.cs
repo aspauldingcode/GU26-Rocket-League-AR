@@ -1,12 +1,11 @@
 using System.Collections;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace CardboardXR.Stereo
 {
-    // Captures the mono phone UI and feeds JPEG frames into a hidden WebView that runs webrtc.js as
-    // the PeerJS host. Stereo stays off while casting so the website sees a readable UI, not the
-    // lens-warped 3D view.
+    // Shares an off-screen mono view of the scene over PeerJS. The phone display is left alone
+    // (stereo stays stereo); a second midpoint camera renders into a RenderTexture that is JPEG'd
+    // into the hidden host WebView for GH Pages viewers.
     public class WebRtcCastHost : MonoBehaviour
     {
         const int k_Width = 640;
@@ -19,7 +18,7 @@ namespace CardboardXR.Stereo
         WebRtcCastWebView m_WebView;
         RenderTexture m_Capture;
         Texture2D m_Readback;
-        bool m_WasMono;
+        Camera m_CastCamera;
         bool m_Casting;
         string m_Room;
         float m_NextFrame;
@@ -37,16 +36,12 @@ namespace CardboardXR.Stereo
                 return;
 
             m_Room = string.IsNullOrWhiteSpace(room) ? WebRtcCast.NewRoomCode() : room.Trim().ToLowerInvariant();
-            m_WasMono = m_Rig != null && m_Rig.IsMono;
-            if (m_Rig != null)
-                m_Rig.SetMono(true);
-
             EnsureCapture();
+            EnsureCastCamera();
             m_Casting = true;
             m_NextFrame = Time.unscaledTime + 0.35f;
-            // Open the WKWebView on the next frame so SetMono's camera rebuild finishes first.
             StartCoroutine(OpenHostPage());
-            Debug.Log($"[Cast] Sharing mono UI on room {m_Room}");
+            Debug.Log($"[Cast] Sharing off-screen mono on room {m_Room} (phone display unchanged)");
         }
 
         IEnumerator OpenHostPage()
@@ -59,14 +54,12 @@ namespace CardboardXR.Stereo
             m_NextFrame = Time.unscaledTime + 0.25f;
         }
 
-        // Drops a stale host and joins a fresh laptop room (or mints one).
         public void RestartCast(string room = null)
         {
             StopCast();
             StartCast(room);
         }
 
-        // Same room, fresh host page (clears a wedged PeerJS peer without changing the QR).
         public void SoftReconnectHost()
         {
             if (!m_Casting || string.IsNullOrEmpty(m_Room) || m_WebView == null)
@@ -83,8 +76,8 @@ namespace CardboardXR.Stereo
 
             m_Casting = false;
             m_WebView?.Close();
-            if (m_Rig != null && m_Rig.IsMono != m_WasMono)
-                m_Rig.SetMono(m_WasMono);
+            if (m_CastCamera != null)
+                m_CastCamera.enabled = false;
             m_Room = null;
             Debug.Log("[Cast] Stopped sharing");
         }
@@ -93,6 +86,11 @@ namespace CardboardXR.Stereo
 
         void OnDestroy()
         {
+            if (m_CastCamera != null)
+            {
+                Destroy(m_CastCamera.gameObject);
+                m_CastCamera = null;
+            }
             if (m_Capture != null)
             {
                 m_Capture.Release();
@@ -104,7 +102,7 @@ namespace CardboardXR.Stereo
 
         void LateUpdate()
         {
-            if (!m_Casting || m_WebView == null || !m_WebView.IsReady)
+            if (!m_Casting || m_WebView == null || !m_WebView.IsReady || m_CastCamera == null)
                 return;
             if (Time.unscaledTime < m_NextFrame || m_Reading)
                 return;
@@ -115,18 +113,16 @@ namespace CardboardXR.Stereo
         IEnumerator PushFrame()
         {
             m_Reading = true;
+            // Let the cast camera finish this frame's RT before readback.
             yield return new WaitForEndOfFrame();
-            if (!m_Casting)
+            if (!m_Casting || m_Capture == null)
             {
                 m_Reading = false;
                 yield break;
             }
 
-            // ReadPixels after end-of-frame is safer on iOS XR than AsyncGPUReadback off a
-            // CaptureScreenshotIntoRenderTexture target (that path can native-crash under ARKit).
             try
             {
-                ScreenCapture.CaptureScreenshotIntoRenderTexture(m_Capture);
                 var prev = RenderTexture.active;
                 RenderTexture.active = m_Capture;
                 m_Readback.ReadPixels(new Rect(0, 0, k_Width, k_Height), 0, 0, false);
@@ -154,16 +150,37 @@ namespace CardboardXR.Stereo
         {
             if (m_Capture != null)
                 return;
-            m_Capture = new RenderTexture(k_Width, k_Height, 0, RenderTextureFormat.ARGB32)
+            m_Capture = new RenderTexture(k_Width, k_Height, 24, RenderTextureFormat.ARGB32)
             {
-                name = "Cast Capture",
+                name = "Cast Mono",
                 filterMode = FilterMode.Bilinear,
+                antiAliasing = 1,
             };
             m_Capture.Create();
             m_Readback = new Texture2D(k_Width, k_Height, TextureFormat.RGBA32, false)
             {
                 name = "Cast Readback",
             };
+        }
+
+        void EnsureCastCamera()
+        {
+            if (m_CastCamera == null)
+            {
+                var go = new GameObject("Cast Mono Eye");
+                m_CastCamera = go.AddComponent<Camera>();
+            }
+
+            m_CastCamera.targetTexture = m_Capture;
+            m_CastCamera.enabled = true;
+            if (m_Rig != null)
+                m_Rig.ConfigureCastCamera(m_CastCamera);
+            else
+            {
+                m_CastCamera.transform.SetParent(transform, false);
+                m_CastCamera.stereoTargetEye = StereoTargetEyeMask.None;
+                m_CastCamera.fieldOfView = 60f;
+            }
         }
     }
 }
