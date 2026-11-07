@@ -23,8 +23,17 @@ namespace CardboardXR.Stereo
             "Look at the QR code from\nhttps://aspauldingcode.github.io/GU26-Rocket-League-AR";
         const float k_RetryDelaySeconds = 2.5f;
         const float k_ToastSeconds = 3f;
-        const float k_WorldCastDistance = 0.9f;
-        const float k_WorldCastPitch = 8f;
+        const float k_WorldCastDistance = 1.2f;
+        // Below eye level, so the QR on the laptop, straight ahead, stays clear.
+        const float k_WorldCastPitch = -22f;
+        // The hint re-centers once the head turns this far away from it.
+        const float k_WorldCastDeadZone = 30f;
+        // In 3DoF the pinch sensor shares its camera; with no frames from it for this long (pinching
+        // off), the scan opens the AR session itself.
+        const float k_FeedFallbackSeconds = 4f;
+
+        // A share scan began: anything else using the room (the lobby's room scan) steps aside.
+        public static event System.Action ShareScanStarted;
 
         [SerializeField] StereoRig m_Rig;
         [SerializeField] ARSession m_Session;
@@ -53,11 +62,13 @@ namespace CardboardXR.Stereo
         bool m_SessionWasEnabled;
         bool m_CameraWasEnabled;
 
-        // World-space cast scan (Gaze + pinch), not the phone 2D overlay.
+        // World-space cast scan hint (gaze + pinch), not the phone 2D overlay. No camera preview: a
+        // second picture of the room floating in view read as a stray window.
         RectTransform m_WorldCastPanel;
-        RawImage m_WorldCastPreview;
         TMP_Text m_WorldCastStatus;
-        AspectRatioFitter m_WorldCastFitter;
+        bool m_ArStartedForScan;
+        bool m_FellBackToAr;
+        float m_WorldCastYaw;
 
         void Awake()
         {
@@ -89,13 +100,8 @@ namespace CardboardXR.Stereo
                 m_PreviewFitter.aspectRatio = m_Scanner.Preview.width / (float)m_Scanner.Preview.height;
             }
 
-            if (m_CastScanning && m_WorldCastPanel != null && m_WorldCastPanel.gameObject.activeSelf &&
-                m_Scanner.Preview != null && m_WorldCastPreview != null)
-            {
-                m_WorldCastPreview.texture = m_Scanner.Preview;
-                if (m_WorldCastFitter != null)
-                    m_WorldCastFitter.aspectRatio = m_Scanner.Preview.width / (float)m_Scanner.Preview.height;
-            }
+            if (m_CastScanning)
+                UpdateWorldCastScan();
 
             if (M3Fade.IsShown(m_Snackbar) && Time.unscaledTime > m_ToastHideTime)
                 M3Fade.Hide(m_Snackbar);
@@ -168,7 +174,7 @@ namespace CardboardXR.Stereo
         void ChooseSetViewer()
         {
             M3Fade.Hide(m_Menu);
-            m_CastScanning = false;
+            StopWorldCastScan(false);
             SetScanning(true);
         }
 
@@ -189,7 +195,7 @@ namespace CardboardXR.Stereo
 
             if (m_CastScanning)
             {
-                StopWorldCastScan();
+                StopWorldCastScan(false);
                 return;
             }
 
@@ -199,31 +205,77 @@ namespace CardboardXR.Stereo
         void StartWorldCastScan()
         {
             m_CastScanning = true;
-            m_SessionWasEnabled = m_Session.enabled;
-            m_CameraWasEnabled = m_CameraManager.enabled;
-            m_Session.enabled = true;
-            m_CameraManager.enabled = true;
+            m_Resolving = false;
+            ShareScanStarted?.Invoke();
+            // The room scan's wave and lobby panel would cover the view while looking for the QR.
+            var boundary = FindAnyObjectByType<RoomBoundary>();
+            if (boundary != null && boundary.IsScanning)
+            {
+                boundary.FinishScan();
+                Debug.Log("[Cast] Ended the room scan for Share");
+            }
+
+            // In 6DoF the AR session already runs and the scanner reads its images. Otherwise the
+            // pinch sensor holds the camera: read its frames rather than open the AR session, which
+            // would take the camera from it and stop both pinching and the scan.
+            m_ArStartedForScan = false;
+            m_FellBackToAr = false;
+            var arRunning = m_Session.enabled && m_CameraManager.enabled;
+            m_Scanner.UseFeed = !arRunning;
             m_Scanner.enabled = true;
             // Phone display stays whatever StereoRig already is (usually stereo). Do not SetMono,
             // do not disable the rig, do not open 2D overlays for this flow.
             if (m_Rig != null && !m_Rig.enabled)
                 m_Rig.enabled = true;
-            ShowWorldCastScan(true);
             if (m_WorldCastStatus != null)
                 m_WorldCastStatus.text = k_CastScanPrompt;
-            Debug.Log("[Cast] World-space share scan started (3D only, display untouched)");
+            ShowWorldCastScan(true);
+            Debug.Log($"[Cast] Share scan started from {(arRunning ? "the AR camera" : "the pinch camera")}; display untouched");
         }
 
-        void StopWorldCastScan()
+        void UpdateWorldCastScan()
+        {
+            // Switched to 3DoF mid-scan: the AR session has stopped, and the pinch sensor takes over.
+            if (!m_Scanner.UseFeed && !(m_Session.enabled && m_CameraManager.enabled))
+                m_Scanner.UseFeed = true;
+            if (m_Scanner.UseFeed && !m_FellBackToAr &&
+                Time.unscaledTime - m_Scanner.LastImageTime > k_FeedFallbackSeconds)
+            {
+                m_FellBackToAr = true;
+                m_ArStartedForScan = !m_Session.enabled || !m_CameraManager.enabled;
+                m_Session.enabled = true;
+                m_CameraManager.enabled = true;
+                Debug.Log("[Cast] No frames from the pinch camera; scanning with the AR session");
+            }
+            FollowHead(false);
+        }
+
+        // paired: hide at once, so nothing lingers in view once the website shows the stream.
+        void StopWorldCastScan(bool paired)
         {
             if (!m_CastScanning && (m_WorldCastPanel == null || !m_WorldCastPanel.gameObject.activeSelf))
                 return;
             m_CastScanning = false;
             m_Resolving = false;
             m_Scanner.enabled = false;
-            m_Session.enabled = m_SessionWasEnabled;
-            m_CameraManager.enabled = m_CameraWasEnabled;
-            ShowWorldCastScan(false);
+            m_Scanner.UseFeed = false;
+            if (m_ArStartedForScan)
+            {
+                // Only what this scan turned on, and not if 6DoF has taken the session over since.
+                var fusion = FindAnyObjectByType<HeadPoseFusion>();
+                if (fusion == null || fusion.CurrentMode != HeadPoseFusion.Mode.SixDof)
+                {
+                    m_CameraManager.enabled = false;
+                    m_Session.enabled = false;
+                }
+                m_ArStartedForScan = false;
+            }
+            if (m_WorldCastPanel == null)
+                return;
+            if (paired)
+                m_WorldCastPanel.gameObject.SetActive(false);
+            else
+                M3Fade.Hide(m_WorldCastPanel.gameObject);
         }
 
         void ShowWorldCastScan(bool show)
@@ -231,20 +283,30 @@ namespace CardboardXR.Stereo
             if (m_WorldCastPanel == null)
                 return;
             if (show)
-                PlaceWorldCastInFront();
+                FollowHead(true);
             M3Fade.SetShown(m_WorldCastPanel.gameObject, show);
         }
 
-        void PlaceWorldCastInFront()
+        // World-locked below the gaze, re-centered only once the head turns well away, so it
+        // neither swims with every head movement nor sits over the QR being looked at.
+        void FollowHead(bool snap)
         {
             if (m_WorldCastPanel == null || m_Rig == null)
                 return;
             var head = m_Rig.transform;
             var flat = Vector3.ProjectOnPlane(head.forward, Vector3.up);
-            var yaw = flat.sqrMagnitude > 1e-4f ? Quaternion.LookRotation(flat.normalized) : Quaternion.identity;
-            var position = head.position +
-                           yaw * Quaternion.Euler(-k_WorldCastPitch, 0f, 0f) * Vector3.forward * k_WorldCastDistance;
-            m_WorldCastPanel.SetPositionAndRotation(position, Quaternion.LookRotation(position - head.position, Vector3.up));
+            if (flat.sqrMagnitude < 1e-4f)
+                return;
+            var headYaw = Quaternion.LookRotation(flat.normalized).eulerAngles.y;
+            if (snap)
+                m_WorldCastYaw = headYaw;
+            else if (Mathf.Abs(Mathf.DeltaAngle(m_WorldCastYaw, headYaw)) > k_WorldCastDeadZone)
+                m_WorldCastYaw = Mathf.MoveTowardsAngle(m_WorldCastYaw, headYaw, 240f * Time.unscaledDeltaTime);
+            else
+                return;
+            var direction = Quaternion.Euler(-k_WorldCastPitch, m_WorldCastYaw, 0f) * Vector3.forward;
+            var position = head.position + direction * k_WorldCastDistance;
+            m_WorldCastPanel.SetPositionAndRotation(position, Quaternion.LookRotation(direction, Vector3.up));
         }
 
         void UpdateViewLabel()
@@ -325,7 +387,7 @@ namespace CardboardXR.Stereo
 
         static GameObject FindGazePanel()
         {
-            var canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include);
             for (var i = 0; i < canvases.Length; i++)
             {
                 if (canvases[i] != null && canvases[i].gameObject.name == "Gaze Panel")
@@ -358,12 +420,13 @@ namespace CardboardXR.Stereo
 
             if (m_CastScanning)
             {
-                if (WebRtcCast.TryParseRoom(text, out var room))
+                if (WebRtcCast.TryParseCast(text, out var room, out var aspect))
                 {
-                    // Valid GH Pages room: off-screen mono → Pages; phone stereo unchanged; no 2D UI.
+                    // Valid GH Pages room: off-screen mono at the page's aspect → Pages; phone stereo
+                    // unchanged; the hint goes at once; no 2D UI.
                     var displayMono = m_Rig != null && m_Rig.IsMono;
-                    StopWorldCastScan();
-                    m_Cast.StartCast(room);
+                    StopWorldCastScan(true);
+                    m_Cast.StartCast(room, aspect);
                     UpdateShareLabel();
                     if (m_Rig != null && m_Rig.IsMono != displayMono)
                         Debug.LogError($"[Cast] Display mode changed after StartCast (was mono={displayMono})");
@@ -372,7 +435,7 @@ namespace CardboardXR.Stereo
                 }
 
                 if (m_WorldCastStatus != null)
-                    m_WorldCastStatus.text = "Not a laptop cast QR. Keep looking…";
+                    m_WorldCastStatus.text = "That QR isn't the share page's. Look at the one on the website.";
                 await Awaitable.WaitForSecondsAsync(k_RetryDelaySeconds);
                 m_Resolving = false;
                 if (m_CastScanning)
@@ -436,28 +499,18 @@ namespace CardboardXR.Stereo
 
         void BuildWorldCastUi()
         {
-            m_WorldCastPanel = M3.Canvas("Cast Scan", m_Rig != null ? m_Rig.transform : transform,
-                new Vector2(520f, 380f), k_WorldCastDistance, M3Theme.SurfaceContainer, M3Theme.k_ShapePanel);
+            // World-locked, not a child of the head: placed below the gaze by FollowHead.
+            m_WorldCastPanel = M3.Canvas("Cast Scan", transform, new Vector2(480f, 132f), k_WorldCastDistance,
+                M3Theme.SurfaceContainer, M3Theme.k_ShapePanel);
             m_WorldCastPanel.gameObject.AddComponent<GazeCanvas>();
 
-            M3.Text("Title", m_WorldCastPanel, "Share screen", M3Theme.Type.TitleMedium, new Vector2(0f, 158f),
-                new Vector2(480f, 32f));
+            M3.Icon("Icon", m_WorldCastPanel, "qr_code_scanner", 28f, new Vector2(-206f, 30f), M3Theme.Primary);
+            M3.Text("Title", m_WorldCastPanel, "Share screen", M3Theme.Type.TitleMedium, new Vector2(20f, 30f),
+                new Vector2(400f, 28f), alignment: TextAlignmentOptions.Left);
             m_WorldCastStatus = M3.Text("Status", m_WorldCastPanel, k_CastScanPrompt, M3Theme.Type.BodyMedium,
-                new Vector2(0f, 118f), new Vector2(480f, 64f), M3Theme.OnSurfaceVariant);
-
-            var previewFrame = M3.Surface("Preview Frame", m_WorldCastPanel, new Vector2(0f, 0f), new Vector2(400f, 160f),
-                Color.black, M3Theme.k_ShapeSmall);
-            var previewObject = new GameObject("Preview", typeof(RawImage), typeof(AspectRatioFitter));
-            previewObject.transform.SetParent(previewFrame.rectTransform, false);
-            Stretch((RectTransform)previewObject.transform);
-            m_WorldCastPreview = previewObject.GetComponent<RawImage>();
-            m_WorldCastPreview.color = Color.white;
-            m_WorldCastPreview.raycastTarget = false;
-            m_WorldCastFitter = previewObject.GetComponent<AspectRatioFitter>();
-            m_WorldCastFitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
-
-            M3.Button("Cancel", m_WorldCastPanel, "Cancel", M3Button.Variant.Tonal, new Vector2(0f, -152f),
-                StopWorldCastScan, "close", 160f);
+                new Vector2(-50f, -26f), new Vector2(340f, 52f), M3Theme.OnSurfaceVariant, TextAlignmentOptions.Left);
+            M3.Button("Cancel", m_WorldCastPanel, "Cancel", M3Button.Variant.Tonal, new Vector2(170f, -26f),
+                () => StopWorldCastScan(false), null, 108f);
             m_WorldCastPanel.gameObject.SetActive(false);
         }
 

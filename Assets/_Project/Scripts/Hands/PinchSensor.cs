@@ -441,6 +441,7 @@ namespace CardboardXR.Hands
                 m_NextImage = new NativeArray<byte>(width * height * 4, Allocator.Persistent);
             }
             CopyRows(source, m_NextImage, width, height);
+            CameraFrameFeed.PublishRgba(m_NextImage, width, height);
             m_NextWidth = width;
             m_NextHeight = height;
             m_HasNextImage = true;

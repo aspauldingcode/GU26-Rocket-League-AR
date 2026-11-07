@@ -85,10 +85,12 @@
       margin: 0 auto;
     }
     #qr {
-      display: block;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       margin: 0 auto;
-      width: 240px;
-      min-height: 240px;
+      width: 300px;
+      height: 300px;
       background: #fff;
       border: 1px solid #000;
       overflow: hidden;
@@ -100,22 +102,22 @@
     }
     #qr img, #qr canvas, #qr svg {
       display: block;
-      width: 240px;
-      height: 240px;
+      width: 300px;
+      height: 300px;
       margin: 0 auto;
     }
     #room {
       margin-top: 8px;
       font-weight: bold;
     }
+    /* External display: once the phone streams, its mono view fills the window. The phone
+       renders at this screen's aspect (sent in the QR), so full screen has no bars. */
     #stage {
-      margin: 10px auto 0;
-      width: 420px;
-      max-width: 90vw;
-      aspect-ratio: 16 / 9;
+      position: fixed;
+      inset: 0;
+      z-index: 5;
       background: #000;
-      border: 2px solid #000;
-      overflow: hidden;
+      cursor: zoom-in;
     }
     #view {
       display: block;
@@ -124,31 +126,18 @@
       object-fit: contain;
       background: #000;
     }
-    /* Presentation: once the phone is casting, fill with the 16:9 mono AR frame. */
-    body.live #wallpaper { opacity: 0.25; }
-    body.live .box {
-      background: rgba(0, 0, 0, 0.72);
-      color: #eee;
-      border-color: #444;
-      max-width: min(96vw, 1280px);
-      width: min(96vw, 1280px);
+    body.live #wallpaper, body.live table.page { display: none; }
+    #live-status {
+      position: fixed;
+      left: 12px;
+      bottom: 10px;
+      z-index: 6;
+      color: #bbb;
+      font-size: 12px;
+      display: none;
+      text-shadow: 0 0 3px #000;
     }
-    body.live h1, body.live #status { color: #ddd; }
-    body.live #pair { display: none !important; }
-    body.live #stage {
-      width: 100%;
-      max-width: none;
-      margin: 8px 0 0;
-      border-width: 1px;
-      aspect-ratio: 16 / 9;
-      max-height: 78vh;
-    }
-    body.live #view {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      background: #000;
-    }
+    body.live #live-status { display: block; }
     #actions {
       margin-top: 10px;
     }
@@ -181,10 +170,6 @@
             <div id="room">----</div>
           </div>
 
-          <div id="stage" style="display:none">
-            <video id="view" autoplay playsinline muted></video>
-          </div>
-
           <div id="actions" style="display:none">
             <input type="button" id="reconnect" value="Reconnect">
             <input type="button" id="leave" value="New QR">
@@ -193,10 +178,14 @@
       </td>
     </tr>
   </table>
+  <div id="stage" style="display:none">
+    <canvas id="view" width="960" height="540"></canvas>
+  </div>
+  <div id="live-status"></div>
   <script src="qrcode.min.js?v=cast3d2"></script>
   <script>
     if (typeof qrcode === "function") window.qrcode = qrcode;
   </script>
-  <script src="webrtc.js?v=cast16x9"></script>
+  <script src="webrtc.js?v=castdc1"></script>
 </body>
 </html>

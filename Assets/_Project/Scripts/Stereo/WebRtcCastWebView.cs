@@ -4,8 +4,9 @@ using UnityEngine;
 
 namespace CardboardXR.Stereo
 {
-    // Tiny hidden WebView that loads the GitHub Pages host page (webrtc.js) so PeerJS runs in a
-    // real browser engine. Unity only pushes JPEG frames into it.
+    // Tiny invisible WebView that loads the GitHub Pages host page (webrtc.js) so PeerJS runs in a
+    // real browser engine. Unity only pushes JPEG frames into it; the page sends them to the website
+    // over a data channel.
     public class WebRtcCastWebView : MonoBehaviour
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -86,9 +87,11 @@ namespace CardboardXR.Stereo
                     settings.Call("setMediaPlaybackRequiresUserGesture", false);
                 }
 
-                using var layout = new AndroidJavaObject("android.widget.FrameLayout$LayoutParams", 2, 2);
+                // On screen but invisible: a page in a fully transparent or detached view can be
+                // paused, which stops the stream to the website.
+                using var layout = new AndroidJavaObject("android.widget.FrameLayout$LayoutParams", 1, 1);
                 m_WebView.Call("setLayoutParams", layout);
-                m_WebView.Call("setAlpha", 0f);
+                m_WebView.Call("setAlpha", 0.01f);
                 m_WebView.Call("setWebViewClient", new PageClient(this));
                 m_WebView.Call("setWebChromeClient", new AndroidJavaObject("android.webkit.WebChromeClient"));
 

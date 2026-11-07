@@ -44,8 +44,36 @@ namespace CardboardXR.Stereo
             return next;
         }
 
+        public const float DefaultAspect = 16f / 9f;
+        public const float MinAspect = 1.2f;
+        public const float MaxAspect = 2.4f;
+
         // Laptop page QR, or a bare room code typed/scanned from the site.
-        public static bool TryParseRoom(string text, out string room)
+        public static bool TryParseRoom(string text, out string room) => TryParseCast(text, out room, out _);
+
+        // The page's QR also carries its display's landscape aspect (aspect=1.600), which the mono
+        // capture is rendered at so the website shows it without bars. Missing or bad: 16:9.
+        public static bool TryParseCast(string text, out string room, out float aspect)
+        {
+            aspect = DefaultAspect;
+            if (!TryParseRoomOnly(text, out room))
+                return false;
+            if (Uri.TryCreate(text.Trim(), UriKind.Absolute, out var uri) && !string.IsNullOrEmpty(uri.Query))
+            {
+                foreach (var part in uri.Query.TrimStart('?').Split('&'))
+                {
+                    var kv = part.Split(new[] { '=' }, 2);
+                    if (kv.Length == 2 && kv[0].Equals("aspect", StringComparison.OrdinalIgnoreCase) &&
+                        float.TryParse(Uri.UnescapeDataString(kv[1]), System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var value) &&
+                        !float.IsNaN(value))
+                        aspect = Mathf.Clamp(value, MinAspect, MaxAspect);
+                }
+            }
+            return true;
+        }
+
+        static bool TryParseRoomOnly(string text, out string room)
         {
             room = null;
             if (string.IsNullOrWhiteSpace(text))

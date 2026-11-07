@@ -90,10 +90,44 @@ namespace CardboardXR.Stereo.Tests
         }
 
         [Test]
-        public void CaptureAspectMatchesWebsiteSixteenByNine()
+        public void DefaultCaptureIsSixteenByNine()
         {
             Assert.That(WebRtcCastHost.CaptureWidth / (float)WebRtcCastHost.CaptureHeight, Is.EqualTo(16f / 9f).Within(0.001f));
             Assert.That(WebRtcCastHost.CaptureAspect, Is.EqualTo(16f / 9f).Within(0.001f));
+        }
+
+        [Test]
+        public void TryParseCastReadsTheWebsitesAspect()
+        {
+            Assert.That(WebRtcCast.TryParseCast(WebRtcCast.PagesBaseUrl + "?room=abcd1234&aspect=1.600", out var room, out var aspect), Is.True);
+            Assert.That(room, Is.EqualTo("abcd1234"));
+            Assert.That(aspect, Is.EqualTo(1.6f).Within(0.001f));
+
+            Assert.That(WebRtcCast.TryParseCast(WebRtcCast.ViewerUrl("abcd1234"), out _, out var missing), Is.True);
+            Assert.That(missing, Is.EqualTo(16f / 9f).Within(0.001f));
+
+            Assert.That(WebRtcCast.TryParseCast(WebRtcCast.PagesBaseUrl + "?room=abcd1234&aspect=9", out _, out var wide), Is.True);
+            Assert.That(wide, Is.EqualTo(WebRtcCast.MaxAspect));
+            Assert.That(WebRtcCast.TryParseCast(WebRtcCast.PagesBaseUrl + "?room=abcd1234&aspect=nope", out _, out var bad), Is.True);
+            Assert.That(bad, Is.EqualTo(16f / 9f).Within(0.001f));
+        }
+
+        [Test]
+        public void CastFrameFollowsTheWebsitesAspect()
+        {
+            Assert.That(WebRtcCastHost.FrameSizeFor(16f / 9f), Is.EqualTo(new Vector2Int(960, 540)));
+            Assert.That(WebRtcCastHost.FrameSizeFor(1.6f), Is.EqualTo(new Vector2Int(864, 540)));
+
+            var host = new GameObject("Cast Host").AddComponent<WebRtcCastHost>();
+            host.StartCast("aspect01", 1.6f);
+            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(864, 540)));
+            host.RestartCast("aspect02");
+            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(864, 540)));
+            host.StopCast();
+            host.StartCast("aspect03");
+            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(960, 540)));
+            host.StopCast();
+            Object.DestroyImmediate(host.gameObject);
         }
 
         [Test]

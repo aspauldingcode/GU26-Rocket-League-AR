@@ -2,6 +2,17 @@
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 
+// The host page's status lines (webrtc.js log()) land in the device log as [Cast/Web].
+@interface CardboardXRCastLog : NSObject <WKScriptMessageHandler>
+@end
+
+@implementation CardboardXRCastLog
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message
+{
+    NSLog(@"[Cast/Web] %@", message.body);
+}
+@end
+
 @interface CardboardXRCastHostView : NSObject
 @property(nonatomic, strong) WKWebView *webView;
 @end
@@ -66,12 +77,16 @@ void *CardboardXR_CastOpen(const char *url)
     config.allowsInlineMediaPlayback = YES;
     if (@available(iOS 10.0, *))
         config.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
+    [config.userContentController addScriptMessageHandler:[CardboardXRCastLog new] name:@"castlog"];
 
     CardboardXR_CastRunOnMain(^{
-        WKWebView *webView = [[WKWebView alloc] initWithFrame:CGRectMake(-4, -4, 2, 2) configuration:config];
+        // On screen but invisible: WebKit suspends the page of a hidden or off-screen web view,
+        // which stopped the stream to the website. One point, nearly transparent, no touches.
+        WKWebView *webView = [[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 1, 1) configuration:config];
         webView.opaque = NO;
         webView.backgroundColor = UIColor.clearColor;
-        webView.hidden = YES;
+        webView.alpha = 0.01;
+        webView.userInteractionEnabled = NO;
         UIView *root = CardboardXR_CastRootView();
         if (root != nil)
             [root addSubview:webView];
@@ -88,9 +103,17 @@ void CardboardXR_CastClose(void *handle)
         return;
     CardboardXRCastHostView *host = CFBridgingRelease(handle);
     CardboardXR_CastRunOnMain(^{
-        [host.webView stopLoading];
-        [host.webView removeFromSuperview];
+        WKWebView *webView = host.webView;
         host.webView = nil;
+        if (webView == nil)
+            return;
+        // Let the page drop its PeerJS link first, so the website sees the close at once.
+        [webView evaluateJavaScript:@"try{window.__cast&&window.__cast.destroy()}catch(e){}"
+                  completionHandler:^(id result, NSError *error) {
+            [webView stopLoading];
+            [webView.configuration.userContentController removeScriptMessageHandlerForName:@"castlog"];
+            [webView removeFromSuperview];
+        }];
     });
 }
 

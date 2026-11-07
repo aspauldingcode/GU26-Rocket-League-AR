@@ -28,6 +28,8 @@ namespace CardboardXR.Demos
 
         bool m_Scanned;
         bool m_Ending;
+        // Share began mid-scan: end it and leave the view clear for the QR.
+        bool m_ShareTookOver;
         RectTransform m_Panel;
         TMP_Text m_Status;
         M3Button m_Button;
@@ -35,12 +37,25 @@ namespace CardboardXR.Demos
         bool m_Following;
         float m_YawSpeed;
 
-        void Awake() => m_Core.Demos.Loaded += OnLoaded;
+        void Awake()
+        {
+            m_Core.Demos.Loaded += OnLoaded;
+            ViewerSetupController.ShareScanStarted += OnShareScanStarted;
+        }
 
         void OnDestroy()
         {
+            ViewerSetupController.ShareScanStarted -= OnShareScanStarted;
             if (m_Core != null && m_Core.Demos != null)
                 m_Core.Demos.Loaded -= OnLoaded;
+        }
+
+        void OnShareScanStarted()
+        {
+            if (m_Panel == null || !m_Panel.gameObject.activeSelf)
+                return;
+            m_ShareTookOver = true;
+            m_Ending = true;
         }
 
         void OnLoaded(DemoCatalog.Entry entry)
@@ -63,6 +78,7 @@ namespace CardboardXR.Demos
         {
             m_Scanned = true;
             m_Ending = false;
+            m_ShareTookOver = false;
             var boundary = m_Core.Boundary;
             boundary.ScanRoom();
             Build();
@@ -80,7 +96,7 @@ namespace CardboardXR.Demos
                 tracked |= m_Core.Fusion.IsArTracking;
                 if (m_Ending)
                 {
-                    how = boundary.HasFloor ? "done" : "skipped";
+                    how = m_ShareTookOver ? "ended for Share" : boundary.HasFloor ? "done" : "skipped";
                     boundary.FinishScan();
                     break;
                 }
@@ -101,7 +117,8 @@ namespace CardboardXR.Demos
             Debug.Log($"[Demos] Room scan in the lobby {how} after {Time.unscaledTime - started:F0} s: " +
                       $"{boundary.SurfaceCount} surfaces, {boundary.SurfaceArea:F1} m2, {(boundary.HasFloor ? "floor found" : "no floor")}");
             M3Fade.Hide(m_Panel.gameObject);
-            m_Library.Open();
+            if (!m_ShareTookOver)
+                m_Library.Open();
         }
 
         // Done once the floor's found, Skip before.

@@ -8,7 +8,8 @@ namespace CardboardXR.Stereo
     // display — stereo (or whatever the user had) stays on-device; only GH Pages gets mono.
     public class WebRtcCastHost : MonoBehaviour
     {
-        // 16:9 for laptop / GH Pages presentation — not the phone's taller screen aspect.
+        // The default frame, 16:9, for a page whose QR carried no aspect. Otherwise the height stays
+        // CaptureHeight and the width follows the website's display (FrameSize).
         public const int CaptureWidth = 960;
         public const int CaptureHeight = 540;
         public const float CaptureAspect = CaptureWidth / (float)CaptureHeight;
@@ -27,8 +28,20 @@ namespace CardboardXR.Stereo
         float m_NextFrame;
         bool m_Reading;
         bool m_DisplayWasMono;
+        int m_Width = CaptureWidth;
+        int m_Height = CaptureHeight;
 
         public bool IsCasting => m_Casting;
+        public Vector2Int FrameSize => new(m_Width, m_Height);
+        public float Aspect => m_Width / (float)m_Height;
+
+        // CaptureHeight tall, as wide as the aspect asks, in multiples of 8 for the JPEG encoder.
+        public static Vector2Int FrameSizeFor(float aspect)
+        {
+            aspect = float.IsNaN(aspect) ? WebRtcCast.DefaultAspect : Mathf.Clamp(aspect, WebRtcCast.MinAspect, WebRtcCast.MaxAspect);
+            var width = Mathf.RoundToInt(CaptureHeight * aspect / 8f) * 8;
+            return new Vector2Int(width, CaptureHeight);
+        }
         public string Room => m_Room;
         public string ViewerUrl => string.IsNullOrEmpty(m_Room) ? "" : WebRtcCast.ViewerUrl(m_Room);
 
@@ -38,13 +51,18 @@ namespace CardboardXR.Stereo
 
         public void Configure(StereoRig rig) => m_Rig = rig;
 
-        public void StartCast(string room = null)
+        public void StartCast(string room = null, float aspect = WebRtcCast.DefaultAspect)
         {
             if (m_Casting)
                 return;
 
             m_Room = string.IsNullOrWhiteSpace(room) ? WebRtcCast.NewRoomCode() : room.Trim().ToLowerInvariant();
             m_DisplayWasMono = m_Rig != null && m_Rig.IsMono;
+            var size = FrameSizeFor(aspect);
+            if (m_Capture != null && (m_Capture.width != size.x || m_Capture.height != size.y))
+                ReleaseCapture();
+            m_Width = size.x;
+            m_Height = size.y;
 
             EnsureCapture();
             EnsureCastCamera();
@@ -61,7 +79,7 @@ namespace CardboardXR.Stereo
             m_Casting = true;
             m_NextFrame = Time.unscaledTime + 0.35f;
             StartCoroutine(OpenHostPage());
-            Debug.Log($"[Cast] Off-screen mono → Pages room {m_Room}; phone IsMono={m_DisplayWasMono} (unchanged)");
+            Debug.Log($"[Cast] Off-screen mono {m_Width}x{m_Height} → Pages room {m_Room}; phone IsMono={m_DisplayWasMono} (unchanged)");
         }
 
         IEnumerator OpenHostPage()
@@ -76,8 +94,9 @@ namespace CardboardXR.Stereo
 
         public void RestartCast(string room = null)
         {
+            var aspect = Aspect;
             StopCast();
-            StartCast(room);
+            StartCast(room, aspect);
         }
 
         public void SoftReconnectHost()
@@ -127,8 +146,8 @@ namespace CardboardXR.Stereo
                     m_CastCamera.enabled = false;
                     m_CastCamera.targetTexture = m_Capture;
                 }
-                else if (Mathf.Abs(m_CastCamera.aspect - CaptureAspect) > 0.01f)
-                    ApplyWebsiteAspect(m_CastCamera);
+                else if (Mathf.Abs(m_CastCamera.aspect - Aspect) > 0.01f)
+                    m_CastCamera.aspect = Aspect;
             }
 
             if (m_Rig != null && m_Rig.IsMono != m_DisplayWasMono)
@@ -150,17 +169,32 @@ namespace CardboardXR.Stereo
         void OnDestroy()
         {
             DestroyCastCamera();
+            ReleaseCapture();
+        }
+
+        void ReleaseCapture()
+        {
+            if (m_CastCamera != null)
+                m_CastCamera.targetTexture = null;
             if (m_Capture != null)
             {
                 m_Capture.Release();
-                Destroy(m_Capture);
+                DestroyAsset(m_Capture);
                 m_Capture = null;
             }
             if (m_Readback != null)
             {
-                Destroy(m_Readback);
+                DestroyAsset(m_Readback);
                 m_Readback = null;
             }
+        }
+
+        static void DestroyAsset(Object target)
+        {
+            if (Application.isPlaying)
+                Destroy(target);
+            else
+                DestroyImmediate(target);
         }
 
         IEnumerator PushFrame()
@@ -177,7 +211,7 @@ namespace CardboardXR.Stereo
             {
                 var prev = RenderTexture.active;
                 RenderTexture.active = m_Capture;
-                m_Readback.ReadPixels(new Rect(0, 0, CaptureWidth, CaptureHeight), 0, 0, false);
+                m_Readback.ReadPixels(new Rect(0, 0, m_Width, m_Height), 0, 0, false);
                 m_Readback.Apply(false);
                 RenderTexture.active = prev;
 
@@ -201,14 +235,14 @@ namespace CardboardXR.Stereo
         {
             if (m_Capture != null)
                 return;
-            m_Capture = new RenderTexture(CaptureWidth, CaptureHeight, 24, RenderTextureFormat.ARGB32)
+            m_Capture = new RenderTexture(m_Width, m_Height, 24, RenderTextureFormat.ARGB32)
             {
                 name = "Cast Mono RT",
                 filterMode = FilterMode.Bilinear,
                 antiAliasing = 1,
             };
             m_Capture.Create();
-            m_Readback = new Texture2D(CaptureWidth, CaptureHeight, TextureFormat.RGBA32, false)
+            m_Readback = new Texture2D(m_Width, m_Height, TextureFormat.RGBA32, false)
             {
                 name = "Cast Readback",
             };
@@ -236,16 +270,9 @@ namespace CardboardXR.Stereo
             }
             // Re-assert after Configure — never allow a screen-bound cast camera.
             m_CastCamera.targetTexture = m_Capture;
-            // Lock frustum to the website 16:9 frame (Unity defaults to Screen aspect otherwise).
-            ApplyWebsiteAspect(m_CastCamera);
-        }
-
-        static void ApplyWebsiteAspect(Camera cam)
-        {
-            if (cam == null)
-                return;
-            // Setting aspect disables screen-driven sizing; do not call ResetAspect().
-            cam.aspect = CaptureAspect;
+            // Lock the frustum to the website's frame; Unity otherwise uses the phone screen's aspect.
+            // Setting aspect stops screen-driven sizing; ResetAspect() would undo it.
+            m_CastCamera.aspect = Aspect;
         }
 
         void DestroyCastCamera()

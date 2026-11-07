@@ -37,10 +37,25 @@ namespace CardboardXR.Stereo
 
         public event Action<string> CodeFound;
 
+        int m_FeedVersion;
+
         public Texture Preview => m_Preview;
 
+        // Also read CameraFrameFeed when the AR camera gives no images, as in 3DoF, where the pinch
+        // sensor holds the camera.
+        public bool UseFeed { get; set; }
+
+        // When the last camera image, from either source, was looked at.
+        public float LastImageTime { get; private set; } = float.NegativeInfinity;
+
+        void OnEnable() => LastImageTime = Time.unscaledTime;
+
         // A decode still running when scanning stops finishes on its own; its result is dropped.
-        void OnDisable() => m_Decode = null;
+        void OnDisable()
+        {
+            m_Decode = null;
+            CameraFrameFeed.Wanted = false;
+        }
 
         void OnDestroy()
         {
@@ -58,11 +73,23 @@ namespace CardboardXR.Stereo
                     CodeFound?.Invoke(text);
             }
 
-            if (!m_CameraManager.TryAcquireLatestCpuImage(out var image))
+            if (!m_CameraManager.enabled || !m_CameraManager.TryAcquireLatestCpuImage(out var image))
+            {
+                CameraFrameFeed.Wanted = UseFeed;
+                if (UseFeed && m_Decode == null && Time.unscaledTime >= m_NextScan &&
+                    CameraFrameFeed.TryTake(ref m_FeedVersion, out var luminance, out var feedWidth, out var feedHeight))
+                {
+                    LastImageTime = Time.unscaledTime;
+                    m_NextScan = Time.unscaledTime + m_ScanInterval;
+                    m_Decode = Task.Run(() => Decode(luminance, feedWidth, feedHeight));
+                }
                 return;
+            }
 
+            CameraFrameFeed.Wanted = false;
             using (image)
             {
+                LastImageTime = Time.unscaledTime;
                 UpdatePreview(image);
                 if (m_Decode != null || Time.unscaledTime < m_NextScan)
                     return;

@@ -29,7 +29,7 @@ PluginImporter:
       settings:
         AddToEmbeddedBinaries: false
         CPU: AnyCPU
-        CompileFlags: 
+        CompileFlags: -fobjc-arc
         FrameworkDependencies: WebKit;
   userData: 
   assetBundleName: 
