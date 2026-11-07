@@ -170,9 +170,9 @@ PlayerSettings:
   androidMaxAspectRatio: 2.4
   androidMinAspectRatio: 1
   applicationIdentifier:
-    Android: com.brenpoly.cardboardxr
+    Android: com.rocketleague.gurlar
     Standalone: com.Unity-Technologies.com.unity.template.urp-blank
-    iPhone: com.brenpoly.cardboardxr
+    iPhone: com.rocketleague.gurlar
   buildNumber:
     Standalone: 0
     VisionOS: 0

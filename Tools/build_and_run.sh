@@ -14,8 +14,8 @@ P=${0:A:h:h}
 # Another Unity 6000.6 install: UNITY=/path/to/Unity.app/Contents/MacOS/Unity zsh Tools/...
 U=${UNITY:-/Applications/Unity/Hub/Editor/6000.6.8f1/Unity.app/Contents/MacOS/Unity}
 # Another app id (an iOS bundle id belongs to the Apple team that first signed it):
-#   CARDBOARDXR_BUNDLE_ID=com.example.cardboardxr zsh Tools/...
-PKG=${CARDBOARDXR_BUNDLE_ID:-com.brenpoly.cardboardxr}
+#   CARDBOARDXR_BUNDLE_ID=com.example.gurlar zsh Tools/...
+PKG=${CARDBOARDXR_BUNDLE_ID:-com.rocketleague.gurlar}
 LOGS=${TMPDIR:-/tmp}/cardboardxr
 mkdir -p $LOGS
 cd $P || exit 1

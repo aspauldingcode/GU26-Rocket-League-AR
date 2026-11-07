@@ -71,11 +71,11 @@ zsh Tools/ios_launch.sh                                      # iOS, relaunch wit
 
 Builds are release builds. For a development build (debuggable, with the Unity Profiler able to
 connect over the local network), set `CARDBOARDXR_DEVELOPMENT=1`. The app id is
-`com.brenpoly.cardboardxr`; an iOS bundle id belongs to the Apple team that first signed it, so to
+`com.rocketleague.gurlar`; an iOS bundle id belongs to the Apple team that first signed it, so to
 build for your own iPhone pick your own, the same way for every script:
 
 ```sh
-CARDBOARDXR_BUNDLE_ID=com.example.cardboardxr zsh Tools/ios_build_and_run.sh
+CARDBOARDXR_BUNDLE_ID=com.example.gurlar zsh Tools/ios_build_and_run.sh
 ```
 
 The Android script also runs the EditMode tests first. On iOS, the first install needs Developer
@@ -152,7 +152,7 @@ phone's home screen. The app logs the options it received at startup (`[Stereo] 
   small test clips are bundled. To bundle your own in local builds, put them in a `360` folder
   beside the project (or set `CARDBOARDXR_VIDEOS`): the build scripts copy them into
   `Assets/StreamingAssets`, which git ignores apart from the test clips. Or add your own to the app's `Videos` folder on the phone: on
-  Android `adb push video.mp4 /storage/emulated/0/Android/data/com.brenpoly.cardboardxr/files/Videos`;
+  Android `adb push video.mp4 /storage/emulated/0/Android/data/com.rocketleague.gurlar/files/Videos`;
   on iPhone, Finder's Files tab for the phone, then CardboardXR > Videos. Tags in the name set the
   format (`_360`, `_180`, `_sbs`, `_tb`, `_mono`). For Google Drive, put share links in
   `videos.txt` in that folder, one per line; each downloads on first play.
@@ -187,7 +187,7 @@ Every launch writes a session log on the phone, replacing the last one (which is
 `session-previous.log`). The scripts print its start; to read the whole thing:
 
 ```sh
-adb pull /storage/emulated/0/Android/data/com.brenpoly.cardboardxr/files/session.log   # Android
+adb pull /storage/emulated/0/Android/data/com.rocketleague.gurlar/files/session.log   # Android
 ```
 
 On iOS, `ios_launch.sh` copies it to `$TMPDIR/cardboardxr/ios-session.log`.
