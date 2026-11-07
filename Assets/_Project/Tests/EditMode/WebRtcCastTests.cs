@@ -90,6 +90,13 @@ namespace CardboardXR.Stereo.Tests
         }
 
         [Test]
+        public void CaptureAspectMatchesWebsiteSixteenByNine()
+        {
+            Assert.That(WebRtcCastHost.CaptureWidth / (float)WebRtcCastHost.CaptureHeight, Is.EqualTo(16f / 9f).Within(0.001f));
+            Assert.That(WebRtcCastHost.CaptureAspect, Is.EqualTo(16f / 9f).Within(0.001f));
+        }
+
+        [Test]
         public void StartCastDoesNotFlipPhoneDisplayToMono()
         {
             var head = new GameObject("Head");

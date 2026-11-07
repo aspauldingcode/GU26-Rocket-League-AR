@@ -8,8 +8,11 @@ namespace CardboardXR.Stereo
     // display — stereo (or whatever the user had) stays on-device; only GH Pages gets mono.
     public class WebRtcCastHost : MonoBehaviour
     {
-        const int k_Width = 640;
-        const int k_Height = 360;
+        // 16:9 for laptop / GH Pages presentation — not the phone's taller screen aspect.
+        public const int CaptureWidth = 960;
+        public const int CaptureHeight = 540;
+        public const float CaptureAspect = CaptureWidth / (float)CaptureHeight;
+
         const int k_JpgQuality = 50;
         const float k_FrameInterval = 1f / 12f;
 
@@ -116,11 +119,16 @@ namespace CardboardXR.Stereo
                 return;
 
             // Continuous guard: never let the cast camera lose its RT (would paint the phone).
-            if (m_CastCamera != null && m_CastCamera.enabled && m_CastCamera.targetTexture != m_Capture)
+            if (m_CastCamera != null && m_CastCamera.enabled)
             {
-                Debug.LogError("[Cast] Cast camera lost its RenderTexture — disabling to protect stereo display.");
-                m_CastCamera.enabled = false;
-                m_CastCamera.targetTexture = m_Capture;
+                if (m_CastCamera.targetTexture != m_Capture)
+                {
+                    Debug.LogError("[Cast] Cast camera lost its RenderTexture — disabling to protect stereo display.");
+                    m_CastCamera.enabled = false;
+                    m_CastCamera.targetTexture = m_Capture;
+                }
+                else if (Mathf.Abs(m_CastCamera.aspect - CaptureAspect) > 0.01f)
+                    ApplyWebsiteAspect(m_CastCamera);
             }
 
             if (m_Rig != null && m_Rig.IsMono != m_DisplayWasMono)
@@ -169,7 +177,7 @@ namespace CardboardXR.Stereo
             {
                 var prev = RenderTexture.active;
                 RenderTexture.active = m_Capture;
-                m_Readback.ReadPixels(new Rect(0, 0, k_Width, k_Height), 0, 0, false);
+                m_Readback.ReadPixels(new Rect(0, 0, CaptureWidth, CaptureHeight), 0, 0, false);
                 m_Readback.Apply(false);
                 RenderTexture.active = prev;
 
@@ -193,14 +201,14 @@ namespace CardboardXR.Stereo
         {
             if (m_Capture != null)
                 return;
-            m_Capture = new RenderTexture(k_Width, k_Height, 24, RenderTextureFormat.ARGB32)
+            m_Capture = new RenderTexture(CaptureWidth, CaptureHeight, 24, RenderTextureFormat.ARGB32)
             {
                 name = "Cast Mono RT",
                 filterMode = FilterMode.Bilinear,
                 antiAliasing = 1,
             };
             m_Capture.Create();
-            m_Readback = new Texture2D(k_Width, k_Height, TextureFormat.RGBA32, false)
+            m_Readback = new Texture2D(CaptureWidth, CaptureHeight, TextureFormat.RGBA32, false)
             {
                 name = "Cast Readback",
             };
@@ -228,6 +236,16 @@ namespace CardboardXR.Stereo
             }
             // Re-assert after Configure — never allow a screen-bound cast camera.
             m_CastCamera.targetTexture = m_Capture;
+            // Lock frustum to the website 16:9 frame (Unity defaults to Screen aspect otherwise).
+            ApplyWebsiteAspect(m_CastCamera);
+        }
+
+        static void ApplyWebsiteAspect(Camera cam)
+        {
+            if (cam == null)
+                return;
+            // Setting aspect disables screen-driven sizing; do not call ResetAspect().
+            cam.aspect = CaptureAspect;
         }
 
         void DestroyCastCamera()
