@@ -4,10 +4,10 @@ using UnityEngine;
 
 namespace CardboardXR.Demos.Ascii
 {
-    // A glyph gate on the floor — bevelled phosphor posts, scanline brackets and a lintel of floating
-    // ASCII blocks — not the night-sky doorway. Outside, a depth-mask box shows the ASCII peek only
-    // through the opening; inside, the back half wraps the player and a mask shows the room through
-    // the gate behind them. Crossing uses AsciiCrossing. Logs [Ascii].
+    // A glyph gate on the floor. Outside, a depth-mask box keeps the doorway as the only open
+    // view; inside, a mask in the frame shows the room through the gate behind them. Real AR
+    // planes are remapped by AsciiSurfaces while the gate is up. Crossing uses AsciiCrossing.
+    // Logs [Ascii].
     public class AsciiWorld : MonoBehaviour
     {
         public const float DoorWidth = 1.0f;
@@ -20,12 +20,10 @@ namespace CardboardXR.Demos.Ascii
         static readonly int k_BaseColor = Shader.PropertyToID("_BaseColor");
 
         [SerializeField] Material m_Glow;
-        [SerializeField] Material m_Ascii;
         [SerializeField] Material m_Mask;
 
         Transform m_World;
         Transform m_Frame;
-        GameObject m_BackHalf;
         GameObject m_OutsideMask;
         GameObject m_InsideMask;
         Vector3 m_LastHeadWorld;
@@ -43,7 +41,7 @@ namespace CardboardXR.Demos.Ascii
             m_World = new GameObject("World").transform;
             m_World.SetParent(transform, false);
             m_World.localRotation = Quaternion.Euler(0f, 180f, 0f);
-            BuildPeekWorld();
+            BuildMasks();
             SetInside(false, announce: false);
             m_Animating = StartCoroutine(Animate(k_RiseSeconds, BackOut, null));
         }
@@ -122,7 +120,6 @@ namespace CardboardXR.Demos.Ascii
         void SetInside(bool inside, bool announce)
         {
             IsInside = inside;
-            m_BackHalf.SetActive(inside);
             m_OutsideMask.SetActive(!inside);
             m_InsideMask.SetActive(inside);
             if (!announce)
@@ -137,92 +134,23 @@ namespace CardboardXR.Demos.Ascii
         {
             m_Frame = new GameObject("Frame").transform;
             m_Frame.SetParent(transform, false);
-            var phosphor = new Color(0.2f, 1f, 0.45f);
-            var dim = phosphor * 0.55f;
-            const float post = 0.07f;
-            const float depth = 0.11f;
-            var half = DoorWidth / 2f + post / 2f;
-
-            // Thick outer posts with an inner bevel strip.
+            // Frame ornaments temporarily off while iterating the AR surface remap.
+            // var phosphor = new Color(0.2f, 1f, 0.45f);
+            // var dim = phosphor * 0.55f;
+            // const float post = 0.07f;
+            // const float depth = 0.11f;
+            // var half = DoorWidth / 2f + post / 2f;
             // Box("Left Post", m_Frame, new Vector3(-half, DoorHeight / 2f, 0f), new Vector3(post, DoorHeight, depth), phosphor);
             // Box("Right Post", m_Frame, new Vector3(half, DoorHeight / 2f, 0f), new Vector3(post, DoorHeight, depth), phosphor);
-            // Box("Left Bevel", m_Frame, new Vector3(-half + post * 0.55f, DoorHeight / 2f, depth * 0.35f),
-            //     new Vector3(post * 0.35f, DoorHeight * 0.96f, depth * 0.4f), dim);
-            // Box("Right Bevel", m_Frame, new Vector3(half - post * 0.55f, DoorHeight / 2f, depth * 0.35f),
-            //     new Vector3(post * 0.35f, DoorHeight * 0.96f, depth * 0.4f), dim);
-
-            // Corner brackets at the four opening corners.
-            // const float bracket = 0.14f;
-            // foreach (var side in new[] { -1f, 1f })
-            // {
-            //     Box($"Bracket Low {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - bracket / 2f), bracket / 2f, depth * 0.55f),
-            //         new Vector3(bracket, 0.025f, 0.025f), phosphor);
-            //     Box($"Bracket Low V {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - 0.012f), bracket / 2f, depth * 0.55f),
-            //         new Vector3(0.025f, bracket, 0.025f), phosphor);
-            //     Box($"Bracket High {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - bracket / 2f), DoorHeight - bracket / 2f, depth * 0.55f),
-            //         new Vector3(bracket, 0.025f, 0.025f), phosphor);
-            //     Box($"Bracket High V {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - 0.012f), DoorHeight - bracket / 2f, depth * 0.55f),
-            //         new Vector3(0.025f, bracket, 0.025f), phosphor);
-            // }
-
-            // // Horizontal scanline ribs on each post.
-            // for (var i = 0; i < 7; i++)
-            // {
-            //     var y = 0.22f + i * (DoorHeight - 0.4f) / 6f;
-            //     Box($"Scan L {i}", m_Frame, new Vector3(-half, y, depth * 0.55f), new Vector3(post * 1.2f, 0.012f, 0.02f), dim);
-            //     Box($"Scan R {i}", m_Frame, new Vector3(half, y, depth * 0.55f), new Vector3(post * 1.2f, 0.012f, 0.02f), dim);
-            // }
-
-            // // Lintel: a row of glyph cubes spelling a dense ASCII band.
-            // Box("Lintel Bar", m_Frame, new Vector3(0f, DoorHeight + post / 2f, 0f),
-            //     new Vector3(DoorWidth + 2f * post, post, depth), phosphor);
-            // var glyphs = AsciiGlyph.Ramp;
-            // var count = glyphs.Length;
-            // for (var i = 0; i < 11; i++)
-            // {
-            //     var t = (i + 0.5f) / 11f;
-            //     var x = Mathf.Lerp(-DoorWidth / 2f + 0.06f, DoorWidth / 2f - 0.06f, t);
-            //     var ch = glyphs[AsciiGlyph.BrightnessToIndex(t, count)];
-            //     var cube = Box($"Glyph {ch}", m_Frame, new Vector3(x, DoorHeight + post + 0.05f, depth * 0.2f),
-            //         new Vector3(0.07f, 0.07f, 0.07f), Color.Lerp(dim, phosphor, t));
-            //     cube.localRotation = Quaternion.Euler(0f, i * 17f, 8f);
-            // }
-
-            // Box("Sill", m_Frame, new Vector3(0f, 0.008f, 0f), new Vector3(DoorWidth, 0.016f, depth * 0.8f), dim);
+            // ... brackets / scanlines / lintel / sill ...
         }
 
-        void BuildPeekWorld()
+        // Depth masks only — real room meshes come from AsciiSurfaces while the gate is up.
+        void BuildMasks()
         {
-            var front = new GameObject("Front Half").transform;
-            front.SetParent(m_World, false);
-            m_BackHalf = new GameObject("Back Half");
-            m_BackHalf.transform.SetParent(m_World, false);
-            var back = m_BackHalf.transform;
-
-            // ASCII-shaded floor and wall slabs as the peek / wrap of the dimension.
-            Floor("Floor Front", front, 0.4f, k_BoxDepth - 1f);
-            Floor("Floor Back", back, -(k_BoxDepth - 1f), -0.4f);
-            Wall("Wall L Front", front, -4f, 4f, 8f);
-            Wall("Wall R Front", front, 4f, 4f, 8f);
-            Wall("Wall L Back", back, -4f, -8f, -0.5f);
-            Wall("Wall R Back", back, 4f, -8f, -0.5f);
-
             m_OutsideMask = BuildOutsideMask();
             m_InsideMask = Quad("Inside Mask", m_World, new Vector3(0f, DoorHeight / 2f, 0f),
                 new Vector2(DoorWidth, DoorHeight), Quaternion.identity, m_Mask).gameObject;
-        }
-
-        void Floor(string name, Transform parent, float fromZ, float toZ)
-        {
-            var q = Quad(name, parent, new Vector3(0f, 0.01f, (fromZ + toZ) / 2f),
-                new Vector2(12f, toZ - fromZ), Quaternion.Euler(90f, 0f, 0f), m_Ascii);
-            q.localScale = new Vector3(12f, Mathf.Abs(toZ - fromZ), 1f);
-        }
-
-        void Wall(string name, Transform parent, float x, float fromZ, float toZ)
-        {
-            Quad(name, parent, new Vector3(x, DoorHeight / 2f, (fromZ + toZ) / 2f),
-                new Vector2(Mathf.Abs(toZ - fromZ), DoorHeight), Quaternion.Euler(0f, 90f, 0f), m_Ascii);
         }
 
         GameObject BuildOutsideMask()

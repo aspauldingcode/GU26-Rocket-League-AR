@@ -3,13 +3,13 @@ Shader "CardboardXR/Demos/AsciiSurface"
     Properties
     {
         _GlyphAtlas ("Glyph Atlas", 2D) = "white" {}
-        _GlyphCount ("Glyph Count", Float) = 10
-        _CellSize ("Cell Size (m)", Float) = 0.028
-        _Color ("Phosphor", Color) = (0.25, 1, 0.45, 1)
-        _BgColor ("Background", Color) = (0.02, 0.05, 0.03, 0.92)
+        _GlyphCount ("Glyph Count", Float) = 70
+        _CellSize ("Cell Size (m)", Float) = 0.08
+        _Color ("Phosphor (no camera)", Color) = (0.25, 1, 0.45, 1)
+        _BgColor ("Background", Color) = (0.01, 0.01, 0.01, 1)
         _Extrude ("Vertex Extrude (m)", Float) = 0.004
-        _AsciiCameraTex ("Camera (optional)", 2D) = "gray" {}
-        _UseCamera ("Use Camera", Float) = 0
+        _ColorBoost ("Camera Color Boost", Float) = 1.5
+        _BgFromCamera ("Camera Color In Background", Float) = 0.12
     }
 
     SubShader
@@ -17,8 +17,8 @@ Shader "CardboardXR/Demos/AsciiSurface"
         Tags
         {
             "RenderPipeline" = "UniversalPipeline"
-            "RenderType" = "Transparent"
-            "Queue" = "Transparent"
+            "RenderType" = "Opaque"
+            "Queue" = "Geometry"
         }
 
         Pass
@@ -26,104 +26,16 @@ Shader "CardboardXR/Demos/AsciiSurface"
             Name "AsciiSurface"
             Tags { "LightMode" = "UniversalForward" }
 
-            Blend SrcAlpha OneMinusSrcAlpha
             Cull Off
-            ZWrite Off
+            ZWrite On
             ZTest LEqual
 
             HLSLPROGRAM
-            #pragma vertex Vert
-            #pragma fragment Frag
+            #pragma vertex AsciiVert
+            #pragma fragment AsciiFrag
+            #pragma multi_compile_instancing
 
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-
-            TEXTURE2D(_GlyphAtlas);
-            SAMPLER(sampler_GlyphAtlas);
-            TEXTURE2D(_AsciiCameraTex);
-            SAMPLER(sampler_AsciiCameraTex);
-
-            CBUFFER_START(UnityPerMaterial)
-                float4 _GlyphAtlas_ST;
-                float _GlyphCount;
-                float _CellSize;
-                half4 _Color;
-                half4 _BgColor;
-                float _Extrude;
-                float _UseCamera;
-            CBUFFER_END
-
-            struct Attributes
-            {
-                float3 positionOS : POSITION;
-                float3 normalOS : NORMAL;
-            };
-
-            struct Varyings
-            {
-                float4 positionCS : SV_POSITION;
-                float3 positionWS : TEXCOORD0;
-                float3 normalWS : TEXCOORD1;
-                float4 screenPos : TEXCOORD2;
-            };
-
-            Varyings Vert(Attributes input)
-            {
-                Varyings output;
-                float3 normalWS = TransformObjectToWorldNormal(input.normalOS);
-                float3 positionWS = TransformObjectToWorld(input.positionOS);
-                positionWS += normalWS * _Extrude;
-                output.positionCS = TransformWorldToHClip(positionWS);
-                output.positionWS = positionWS;
-                output.normalWS = normalWS;
-                output.screenPos = ComputeScreenPos(output.positionCS);
-                return output;
-            }
-
-            // Matches AsciiGlyph.BrightnessToIndex: denser glyphs for brighter cells.
-            float2 AtlasUV(float lum, float2 inCell, float count)
-            {
-                float n = max(count, 1.0);
-                float idx = floor(saturate(lum) * (n - 1.0) + 1e-4);
-                float u0 = idx / n;
-                float u1 = (idx + 1.0) / n;
-                return float2(lerp(u0, u1, inCell.x), inCell.y);
-            }
-
-            half4 Frag(Varyings input) : SV_Target
-            {
-                float cell = max(_CellSize, 1e-4);
-                float3 n = abs(normalize(input.normalWS));
-                float2 planar;
-                if (n.y >= n.x && n.y >= n.z)
-                    planar = input.positionWS.xz;
-                else if (n.x >= n.z)
-                    planar = input.positionWS.zy;
-                else
-                    planar = input.positionWS.xy;
-
-                float2 cellCoord = floor(planar / cell);
-                float2 inCell = frac(planar / cell);
-
-                float lum;
-                if (_UseCamera > 0.5)
-                {
-                    float2 screenUV = input.screenPos.xy / max(input.screenPos.w, 1e-5);
-                    half3 cam = SAMPLE_TEXTURE2D(_AsciiCameraTex, sampler_AsciiCameraTex, screenUV).rgb;
-                    lum = dot(cam, half3(0.299, 0.587, 0.114));
-                }
-                else
-                {
-                    half ndotl = saturate(dot(normalize(input.normalWS), normalize(half3(0.25, 0.9, 0.35))));
-                    float hash = frac(sin(dot(cellCoord, float2(12.9898, 78.233))) * 43758.5453);
-                    lum = saturate(ndotl * 0.85 + hash * 0.15);
-                }
-
-                half glyph = SAMPLE_TEXTURE2D(_GlyphAtlas, sampler_GlyphAtlas, AtlasUV(lum, inCell, _GlyphCount)).r;
-                half3 phosphor = _Color.rgb * glyph;
-                half3 rgb = lerp(_BgColor.rgb, phosphor, glyph);
-                half alpha = lerp(_BgColor.a, _Color.a, glyph);
-                return half4(rgb, alpha);
-            }
+            #include "AsciiShader.hlsl"
             ENDHLSL
         }
     }

@@ -1,7 +1,9 @@
+using CardboardXR.Stereo;
 using CardboardXR.UI;
 using TMPro;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
 
 namespace CardboardXR.Demos.Ascii
 {
@@ -19,6 +21,8 @@ namespace CardboardXR.Demos.Ascii
         TMP_Text m_Hint;
         AudioSource m_Audio;
         AudioClip m_Whoosh;
+        ARPlaneManager m_Planes;
+        PlaneDetectionMode? m_PreviousDetection;
 
         public override void OnDemoEnter(CoreServices core)
         {
@@ -27,11 +31,17 @@ namespace CardboardXR.Demos.Ascii
             core.Placer.Placed += OnPlaced;
 
             m_Surfaces = core.Boundary.gameObject.AddComponent<AsciiSurfaces>();
-            var planes = core.Boundary.GetComponent<ARPlaneManager>()
-                ?? core.Boundary.GetComponentInChildren<ARPlaneManager>(true);
-            var camera = Object.FindAnyObjectByType<ARCameraManager>();
-            m_Surfaces.Configure(m_AsciiMaterial, planes, camera);
-            m_Surfaces.SetActive(false);
+            // Unity's fake null defeats ??, so each lookup is checked explicitly.
+            var planes = core.Boundary.GetComponent<ARPlaneManager>();
+            if (planes == null)
+                planes = core.Boundary.GetComponentInChildren<ARPlaneManager>(true);
+            if (planes == null)
+                planes = Object.FindAnyObjectByType<ARPlaneManager>(FindObjectsInactive.Include);
+            if (planes == null)
+                Debug.LogWarning("[Ascii] No ARPlaneManager: room surfaces can't be remapped");
+            else
+                FindWalls(planes, core.Boundary);
+            m_Surfaces.Configure(m_AsciiMaterial, planes, core.Passthrough);
 
             m_Audio = gameObject.AddComponent<AudioSource>();
             m_Audio.playOnAwake = false;
@@ -48,11 +58,29 @@ namespace CardboardXR.Demos.Ascii
                 m_Portal.Crossed -= OnCrossed;
             if (m_Surfaces != null)
             {
-                m_Surfaces.SetActive(false);
+                m_Surfaces.SetGate(null);
                 Destroy(m_Surfaces);
                 m_Surfaces = null;
             }
+            if (m_Planes != null && m_PreviousDetection.HasValue)
+                m_Planes.requestedDetectionMode = m_PreviousDetection.Value;
+            m_Planes = null;
+            m_PreviousDetection = null;
             Debug.Log("[Ascii] Leaving");
+        }
+
+        // The room's planes are horizontal only by default; walls need vertical detection too, and
+        // a room scan to find them if the one before only looked for horizontal surfaces.
+        void FindWalls(ARPlaneManager planes, RoomBoundary boundary)
+        {
+            m_Planes = planes;
+            m_PreviousDetection = planes.requestedDetectionMode;
+            const PlaneDetectionMode wanted = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
+            if ((planes.requestedDetectionMode & wanted) == wanted)
+                return;
+            planes.requestedDetectionMode |= wanted;
+            boundary.ScanRoom();
+            Debug.Log("[Ascii] Scanning for walls as well as floors and tables");
         }
 
         void OnPlaced(GameObject placed)
@@ -63,6 +91,8 @@ namespace CardboardXR.Demos.Ascii
             m_Portal = portal;
             m_Portal.Crossed += OnCrossed;
             m_Core.Placer.ObjectPrefab = null;
+            // Remap as soon as the gate is up so the doorway peeks at real ASCII surfaces.
+            m_Surfaces?.SetGate(portal);
             var distance = Vector3.Distance(m_Core.Head.position, placed.transform.position);
             Debug.Log($"[Ascii] Gate opened {distance:F1} m away");
             m_Audio.PlayOneShot(m_Whoosh, 0.4f);
@@ -72,7 +102,6 @@ namespace CardboardXR.Demos.Ascii
         void OnCrossed(bool inside)
         {
             m_Audio.PlayOneShot(m_Whoosh, 0.7f);
-            m_Surfaces?.SetActive(inside);
             UpdateHint();
         }
 
@@ -83,7 +112,7 @@ namespace CardboardXR.Demos.Ascii
             var portal = m_Portal;
             portal.Crossed -= OnCrossed;
             m_Portal = null;
-            m_Surfaces?.SetActive(false);
+            m_Surfaces?.SetGate(null);
             m_Audio.PlayOneShot(m_Whoosh, 0.3f);
             Debug.Log("[Ascii] Closing the gate to move it");
             portal.Close(() =>
@@ -105,9 +134,9 @@ namespace CardboardXR.Demos.Ascii
             if (m_Portal == null)
                 m_Hint.text = "Look at the floor and pinch to raise the glyph gate.\nNo highlight? Look down at the floor for a moment.";
             else if (!m_Portal.IsInside)
-                m_Hint.text = "Walk through the gate into the ASCII dimension.\nUnplug the phone first if it's on a cable.";
+                m_Hint.text = "Your room's surfaces are ASCII through the gate.\nWalk through to step inside. Unplug first if it's on a cable.";
             else
-                m_Hint.text = "Your room's surfaces are ASCII. Walk back through to return.";
+                m_Hint.text = "You're inside the ASCII remapping. Walk back through to return.";
         }
 
         void BuildPanel()

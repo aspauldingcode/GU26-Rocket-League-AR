@@ -67,6 +67,16 @@ namespace CardboardXR.Stereo
 
         public bool IsOn => m_On;
 
+        // The whole camera image as RGB, once one has arrived while passthrough is on, else null.
+        public Texture CameraImage => m_On && m_HasImage ? m_Texture : null;
+
+        // Where the image was taken from: texture UV is (x / z, y / z) in this transform's space,
+        // less ImageFrustum's center, over its size, plus 0.5.
+        public Transform CameraTransform => m_ArCamera.transform;
+
+        // The image's frustum at unit distance in the AR camera's x and y: center in xy, size in zw.
+        public Vector4 ImageFrustum => new(m_FrustumCenter.x, m_FrustumCenter.y, m_FrustumSize.x, m_FrustumSize.y);
+
         // Where the image should be, in meters from the camera, or null for m_Distance. It eases there.
         public float? FocusDistance
         {

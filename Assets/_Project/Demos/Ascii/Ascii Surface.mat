@@ -23,22 +23,19 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
-    - _AsciiCameraTex:
-        m_Texture: {fileID: 0}
-        m_Scale: {x: 1, y: 1}
-        m_Offset: {x: 0, y: 0}
     - _GlyphAtlas:
-        m_Texture: {fileID: 2800000, guid: c2701f0e4a07e4e52a15e21e4dbec2f2, type: 2}
+        m_Texture: {fileID: 2800000, guid: 433d5a8d492242a5bbd189e4afc36acf, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _CellSize: 0.028
+    - _BgFromCamera: 0.12
+    - _CellSize: 0.08
+    - _ColorBoost: 1.5
     - _Extrude: 0.004
-    - _GlyphCount: 11
-    - _UseCamera: 0
+    - _GlyphCount: 70
     m_Colors:
-    - _BgColor: {r: 0.02, g: 0.05, b: 0.03, a: 0.92}
+    - _BgColor: {r: 0.01, g: 0.01, b: 0.01, a: 1}
     - _Color: {r: 0.25, g: 1, b: 0.45, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

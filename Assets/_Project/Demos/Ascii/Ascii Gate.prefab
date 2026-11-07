@@ -45,5 +45,4 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: CardboardXR.Demos.Ascii::CardboardXR.Demos.Ascii.AsciiWorld
   m_Glow: {fileID: 2100000, guid: cf522eaed60ca4af39f4dc652fa7ed0e, type: 2}
-  m_Ascii: {fileID: 2100000, guid: 6e9d04a292d7d465aafe5d9e89dfdd5d, type: 2}
   m_Mask: {fileID: 2100000, guid: b8377b0b2940442a18e904f7ff1662d1, type: 2}

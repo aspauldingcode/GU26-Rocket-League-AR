@@ -9,7 +9,7 @@ namespace ProjectBootstrap
     class AsciiSetup : DemoSetup
     {
         const string DepthMaskShaderPath = "Assets/_Project/Shaders/DepthMask.shader";
-        const string AsciiShaderPath = "Assets/_Project/Demos/Ascii/Shaders/AsciiShader.shader";
+        const string AsciiShaderPath = "Assets/_Project/Demos/Ascii/Shaders/AsciiSurface.shader";
         const string AtlasPath = "Assets/_Project/Demos/Ascii/Textures/ascii_atlas.png";
 
         public override string Name => "Ascii";
@@ -41,10 +41,11 @@ namespace ProjectBootstrap
             ascii.SetTexture("_GlyphAtlas", atlas);
             ascii.SetFloat("_GlyphCount", AsciiGlyph.Ramp.Length);
             ascii.SetColor("_Color", new Color(0.25f, 1f, 0.45f, 1f));
-            ascii.SetColor("_BgColor", new Color(0.02f, 0.05f, 0.03f, 0.92f));
-            ascii.SetFloat("_CellSize", 0.028f);
+            ascii.SetColor("_BgColor", new Color(0.01f, 0.01f, 0.01f, 1f));
+            ascii.SetFloat("_CellSize", 0.08f);
             ascii.SetFloat("_Extrude", 0.004f);
-            ascii.SetFloat("_UseCamera", 0f);
+            ascii.SetFloat("_ColorBoost", 1.5f);
+            ascii.SetFloat("_BgFromCamera", 0.12f);
             EditorUtility.SetDirty(ascii);
 
             var mask = StereoBuilder.SaveAsset(
@@ -54,7 +55,6 @@ namespace ProjectBootstrap
             var portal = new GameObject("Ascii Gate").AddComponent<AsciiWorld>();
             var serializedPortal = new SerializedObject(portal);
             serializedPortal.FindProperty("m_Glow").objectReferenceValue = glow;
-            serializedPortal.FindProperty("m_Ascii").objectReferenceValue = ascii;
             serializedPortal.FindProperty("m_Mask").objectReferenceValue = mask;
             serializedPortal.ApplyModifiedPropertiesWithoutUndo();
             var prefab = PrefabUtility.SaveAsPrefabAsset(portal.gameObject, $"{folder}/Ascii Gate.prefab");
@@ -87,8 +87,9 @@ namespace ProjectBootstrap
             importer.textureType = TextureImporterType.Default;
             importer.sRGBTexture = false;
             importer.alphaSource = TextureImporterAlphaSource.None;
-            importer.mipmapEnabled = false;
-            importer.filterMode = FilterMode.Point;
+            // Mipmapped and filtered so distant glyphs stay legible instead of breaking into dots.
+            importer.mipmapEnabled = true;
+            importer.filterMode = FilterMode.Trilinear;
             importer.wrapMode = TextureWrapMode.Clamp;
             importer.npotScale = TextureImporterNPOTScale.None;
             importer.textureCompression = TextureImporterCompression.Uncompressed;
