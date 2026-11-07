@@ -28,7 +28,7 @@ namespace CardboardXR.Demos.Ascii
         GameObject m_BackHalf;
         GameObject m_OutsideMask;
         GameObject m_InsideMask;
-        Vector3 m_LastHead;
+        Vector3 m_LastHeadWorld;
         bool m_HasLastHead;
         MaterialPropertyBlock m_Block;
         Coroutine m_Animating;
@@ -90,25 +90,33 @@ namespace CardboardXR.Demos.Ascii
             var core = CoreServices.Instance;
             if (core == null || m_World == null)
                 return;
-            var head = m_Frame.InverseTransformPoint(core.Head.position);
-            head.z = -head.z;
+            var headWorld = core.Head.position;
             if (m_HasLastHead)
             {
+                var before = ToGateSpace(m_LastHeadWorld);
+                var head = ToGateSpace(headWorld);
                 if (Mathf.Abs(head.z) >= AsciiCrossing.PlaneClearance)
                 {
-                    var crossing = AsciiCrossing.Crossing(m_LastHead, head, DoorWidth / 2f, DoorHeight);
+                    var crossing = AsciiCrossing.Crossing(before, head, DoorWidth / 2f, DoorHeight);
                     if (crossing > 0 && !IsInside)
                         SetInside(true, announce: true);
                     else if (crossing < 0 && IsInside)
                         SetInside(false, announce: true);
-                    m_LastHead = head;
+                    m_LastHeadWorld = headWorld;
                 }
             }
             else
             {
-                m_LastHead = head;
+                m_LastHeadWorld = headWorld;
                 m_HasLastHead = true;
             }
+        }
+
+        Vector3 ToGateSpace(Vector3 worldPosition)
+        {
+            var point = m_Frame.InverseTransformPoint(worldPosition);
+            point.z = -point.z;
+            return point;
         }
 
         void SetInside(bool inside, bool announce)
