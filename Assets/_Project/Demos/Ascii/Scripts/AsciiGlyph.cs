@@ -7,7 +7,7 @@ namespace CardboardXR.Demos.Ascii
     public static class AsciiGlyph
     {
         // Classic sparse-to-dense ramp used for the atlas and the portal lintel labels.
-        public const string Ramp = " .:-=+*#%$@";
+        public const string Ramp = @" `.-':,_""^~;!><*\/+?rcL|)(vJizl}{Yt[]xC1IfnuojakhZUXwbdqpOm#8%0WBM$Q&@";
 
         public static float Luminance(Color color) =>
             color.r * 0.299f + color.g * 0.587f + color.b * 0.114f;

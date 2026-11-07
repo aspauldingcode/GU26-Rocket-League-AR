@@ -1,6 +1,3 @@
-// Physical surfaces remapped to a phosphor ASCII grid. Each cell picks a glyph from the atlas by
-// luminance: from the camera image in screen space when _AsciiCameraTex is bound, otherwise from a
-// diffuse N·L term on the surface. A small vertex extrusion gives the cells a terminal depth.
 Shader "CardboardXR/Demos/AsciiSurface"
 {
     Properties
