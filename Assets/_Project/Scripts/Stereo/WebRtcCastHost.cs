@@ -42,11 +42,21 @@ namespace CardboardXR.Stereo
                 m_Rig.SetMono(true);
 
             EnsureCapture();
+            m_Casting = true;
+            m_NextFrame = Time.unscaledTime + 1f;
+            // Open the WKWebView on the next frame so SetMono's camera rebuild finishes first.
+            StartCoroutine(OpenHostPage());
+            Debug.Log($"[Cast] Sharing mono UI on room {m_Room}");
+        }
+
+        IEnumerator OpenHostPage()
+        {
+            yield return null;
+            if (!m_Casting || string.IsNullOrEmpty(m_Room))
+                yield break;
             m_WebView ??= gameObject.AddComponent<WebRtcCastWebView>();
             m_WebView.Open(WebRtcCast.HostUrl(m_Room));
-            m_Casting = true;
-            m_NextFrame = Time.unscaledTime + 0.5f;
-            Debug.Log($"[Cast] Sharing mono UI on room {m_Room}");
+            m_NextFrame = Time.unscaledTime + 0.75f;
         }
 
         // Drops a stale host and joins a fresh laptop room (or mints one).
@@ -112,23 +122,31 @@ namespace CardboardXR.Stereo
                 yield break;
             }
 
-            ScreenCapture.CaptureScreenshotIntoRenderTexture(m_Capture);
-            var request = AsyncGPUReadback.Request(m_Capture, 0, TextureFormat.RGBA32);
-            while (!request.done)
-                yield return null;
-
-            if (request.hasError || !m_Casting)
+            // ReadPixels after end-of-frame is safer on iOS XR than AsyncGPUReadback off a
+            // CaptureScreenshotIntoRenderTexture target (that path can native-crash under ARKit).
+            try
             {
-                m_Reading = false;
-                yield break;
-            }
+                ScreenCapture.CaptureScreenshotIntoRenderTexture(m_Capture);
+                var prev = RenderTexture.active;
+                RenderTexture.active = m_Capture;
+                m_Readback.ReadPixels(new Rect(0, 0, k_Width, k_Height), 0, 0, false);
+                m_Readback.Apply(false);
+                RenderTexture.active = prev;
 
-            var data = request.GetData<Color32>();
-            m_Readback.SetPixelData(data, 0);
-            m_Readback.Apply(false);
-            var jpg = m_Readback.EncodeToJPG(k_JpgQuality);
-            var dataUrl = "data:image/jpeg;base64," + System.Convert.ToBase64String(jpg);
-            m_WebView.PushFrame(dataUrl);
+                if (!m_Casting)
+                {
+                    m_Reading = false;
+                    yield break;
+                }
+
+                var jpg = m_Readback.EncodeToJPG(k_JpgQuality);
+                var dataUrl = "data:image/jpeg;base64," + System.Convert.ToBase64String(jpg);
+                m_WebView.PushFrame(dataUrl);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[Cast] Frame capture failed: {e.Message}");
+            }
             m_Reading = false;
         }
 
