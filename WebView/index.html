@@ -14,15 +14,41 @@
       color: #111;
       font-family: "Courier New", Courier, monospace;
       font-size: 14px;
-      background-color: #111;
+      background: #111;
+    }
+
+    /* Portrait photo on landscape: blurred cover fill + sharp contained subject. */
+    #wallpaper {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+      background: #111;
+    }
+    #wallpaper-blur,
+    #wallpaper-sharp {
+      position: absolute;
+      inset: 0;
       background-image: url("arch-linux-tshirt.jpg");
       background-position: center center;
-      background-size: cover;
       background-repeat: no-repeat;
-      /* fixed breaks wallpaper on many phones / Safari */
-      background-attachment: scroll;
     }
+    #wallpaper-blur {
+      background-size: cover;
+      transform: scale(1.12);
+      filter: blur(28px) saturate(1.15) brightness(0.72);
+      -webkit-filter: blur(28px) saturate(1.15) brightness(0.72);
+    }
+    #wallpaper-sharp {
+      background-size: contain;
+      filter: none;
+      -webkit-filter: none;
+    }
+
     table.page {
+      position: relative;
+      z-index: 1;
       width: 100%;
       height: 100%;
       border: 0;
@@ -98,6 +124,11 @@
   </style>
 </head>
 <body>
+  <div id="wallpaper" aria-hidden="true">
+    <div id="wallpaper-blur"></div>
+    <div id="wallpaper-sharp"></div>
+  </div>
+
   <table class="page" cellpadding="0" cellspacing="0">
     <tr>
       <td class="center">
@@ -124,7 +155,6 @@
   </table>
   <script src="qrcode.min.js"></script>
   <script>
-    /* Safari desktop: force a window global even if the UMD path is odd. */
     if (typeof qrcode === "function") window.qrcode = qrcode;
   </script>
   <script src="webrtc.js"></script>
