@@ -59,10 +59,27 @@
   function showPairingQr(code) {
     if (roomEl) roomEl.textContent = code;
     if (!qrEl) return;
-    var data = encodeURIComponent(pageUrlForRoom(code));
-    qrEl.src = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=" + data;
+    var url = pageUrlForRoom(code);
     qrEl.alt = "QR for room " + code;
     show(pairEl, true);
+
+    // Prefer local generator (no third-party image host). Fall back to public QR APIs.
+    try {
+      if (typeof qrcode === "function") {
+        var qr = qrcode(0, "M");
+        qr.addData(url);
+        qr.make();
+        qrEl.src = qr.createDataURL(6, 8);
+        return;
+      }
+    } catch (e) {}
+
+    var data = encodeURIComponent(url);
+    qrEl.src = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=10&data=" + data;
+    qrEl.onerror = function () {
+      qrEl.onerror = null;
+      qrEl.src = "https://quickchart.io/qr?size=240&text=" + data;
+    };
   }
 
   window.__castLogic = {
@@ -120,9 +137,8 @@
 
   function startViewer(Peer, code) {
     show(actionsEl, true);
-    showPairingQr(code);
     show(stageEl, false);
-    setStatus("Scan with Share view in the app");
+    setStatus("scan this QR with Share view");
 
     var peer = null;
     var callRef = null;
@@ -338,6 +354,7 @@
         setStatus("Missing room");
         return;
       }
+      show(pairEl, false);
       loadPeerJs()
         .then(function (Peer) { startHost(Peer, room); })
         .catch(function (err) { setStatus(err.message || String(err)); });
@@ -349,9 +366,15 @@
       history.replaceState({}, "", "?room=" + encodeURIComponent(room));
     }
 
+    // Draw the QR before PeerJS loads so the page is never a blank box.
+    showPairingQr(room);
+    setStatus("scan this QR with Share view");
+
     loadPeerJs()
       .then(function (Peer) { startViewer(Peer, room); })
-      .catch(function (err) { setStatus(err.message || String(err)); });
+      .catch(function (err) {
+        setStatus((err && err.message ? err.message : String(err)) + " (QR still works after refresh)");
+      });
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
