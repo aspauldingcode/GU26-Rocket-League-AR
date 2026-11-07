@@ -1,12 +1,78 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>GU 2026 Hackathon - Rocket League AR</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1210;
+        --fg: #d7ffe6;
+        --muted: #8fb89a;
+        --accent: #3dff8a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        background: radial-gradient(1200px 600px at 50% -10%, #163526 0%, var(--bg) 55%);
+        color: var(--fg);
+        display: grid;
+        place-items: center;
+        padding: 2rem 1.25rem;
+      }
+      main {
+        width: min(40rem, 100%);
+        text-align: center;
+      }
+      h1 {
+        font-size: clamp(1.6rem, 4vw, 2.2rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin: 0 0 0.75rem;
+      }
+      p {
+        color: var(--muted);
+        line-height: 1.5;
+        margin: 0.5rem 0;
+      }
+      .qr {
+        margin: 1.5rem auto;
+        width: min(16rem, 70vw);
+        aspect-ratio: 1;
+        background: #fff;
+        color: #111;
+        border-radius: 0.75rem;
+        display: grid;
+        place-items: center;
+        padding: 0.75rem;
+      }
+      .qr img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      code {
+        color: var(--accent);
+        word-break: break-all;
+      }
+    </style>
   </head>
   <body>
-    <p>This website does a WebRTC Streaming thing</p>
-
-    <p> Here is the QR CODE (scan with phone, using the AR app):</p>
+    <main>
+      <h1>Rocket League AR</h1>
+      <p>GU 2026 Hackathon — WebRTC streaming companion page.</p>
+      <p>Scan this QR with the AR app on your phone:</p>
+      <div class="qr" aria-label="QR code">
+        <!-- Encodes this Pages URL; replace src when you have a custom payload. -->
+        <img
+          alt="QR code for this page"
+          src="https://api.qrserver.com/v1/create-qr-code/?size=400x400&amp;data=https%3A%2F%2Faspauldingcode.github.io%2FGU26-Rocket-League-AR%2F"
+        />
+      </div>
+      <p><code>https://aspauldingcode.github.io/GU26-Rocket-League-AR/</code></p>
+    </main>
   </body>
 </html>
-
