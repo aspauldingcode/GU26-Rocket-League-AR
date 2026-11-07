@@ -9,7 +9,8 @@ namespace ProjectBootstrap
     class AsciiSetup : DemoSetup
     {
         const string DepthMaskShaderPath = "Assets/_Project/Shaders/DepthMask.shader";
-        const string AsciiShaderPath = "Assets/_Project/Demos/Ascii/Shaders/AsciiSurface.shader";
+        const string AsciiShaderPath = "Assets/_Project/Demos/Ascii/Shaders/AsciiShader.shader";
+        const string AtlasPath = "Assets/_Project/Demos/Ascii/Textures/ascii_atlas.png";
 
         public override string Name => "Ascii";
         public override int Order => 60;
@@ -31,7 +32,7 @@ namespace ProjectBootstrap
             var glow = StereoBuilder.CreateMaterial("Ascii Glow", unlit, Color.white, null, 1f, folder);
             DemoAssets.MakeAdditive(glow);
 
-            var atlas = StereoBuilder.SaveAsset(CreateGlyphAtlas(), $"{folder}/Glyph Atlas.asset");
+            var atlas = LoadAtlas();
             var asciiShader = AssetDatabase.LoadAssetAtPath<Shader>(AsciiShaderPath);
             var ascii = StereoBuilder.SaveAsset(new Material(asciiShader)
             {
@@ -77,7 +78,33 @@ namespace ProjectBootstrap
                 EditorApplication.Exit(0);
         }
 
-        // Horizontal strip of Ramp glyphs, white on black, one cell each — sampled by AsciiSurface.
+        static Texture2D LoadAtlas()
+        {
+            var importer = AssetImporter.GetAtPath(AtlasPath) as TextureImporter;
+            if (importer == null)
+                throw new System.IO.FileNotFoundException("Glyph atlas PNG not found at " + AtlasPath);
+
+            importer.textureType = TextureImporterType.Default;
+            importer.sRGBTexture = false;
+            importer.alphaSource = TextureImporterAlphaSource.None;
+            importer.mipmapEnabled = false;
+            importer.filterMode = FilterMode.Point;
+            importer.wrapMode = TextureWrapMode.Clamp;
+            importer.npotTextureSupport = TextureImporterNPOTScale.None;
+            importer.textureCompression = TextureImporterCompression.Uncompressed;
+            importer.maxTextureSize = 4096;
+            importer.SaveAndReimport();
+
+            var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(AtlasPath);
+
+            // Glyph cells are square, so width must equal height * glyph count.
+            if (texture.width != texture.height * AsciiGlyph.Ramp.Length)
+                Debug.LogError($"Atlas is {texture.width}x{texture.height} but AsciiGlyph.Ramp has " +
+                            $"{AsciiGlyph.Ramp.Length} glyphs. They must match.");
+            return texture;
+        }
+
+        // Horizontal strip of Ramp glyphs, white on black, one cell each.
         static Texture2D CreateGlyphAtlas()
         {
             const int cell = 32;
