@@ -128,51 +128,51 @@ namespace CardboardXR.Demos.Ascii
             var half = DoorWidth / 2f + post / 2f;
 
             // Thick outer posts with an inner bevel strip.
-            Box("Left Post", m_Frame, new Vector3(-half, DoorHeight / 2f, 0f), new Vector3(post, DoorHeight, depth), phosphor);
-            Box("Right Post", m_Frame, new Vector3(half, DoorHeight / 2f, 0f), new Vector3(post, DoorHeight, depth), phosphor);
-            Box("Left Bevel", m_Frame, new Vector3(-half + post * 0.55f, DoorHeight / 2f, depth * 0.35f),
-                new Vector3(post * 0.35f, DoorHeight * 0.96f, depth * 0.4f), dim);
-            Box("Right Bevel", m_Frame, new Vector3(half - post * 0.55f, DoorHeight / 2f, depth * 0.35f),
-                new Vector3(post * 0.35f, DoorHeight * 0.96f, depth * 0.4f), dim);
+            // Box("Left Post", m_Frame, new Vector3(-half, DoorHeight / 2f, 0f), new Vector3(post, DoorHeight, depth), phosphor);
+            // Box("Right Post", m_Frame, new Vector3(half, DoorHeight / 2f, 0f), new Vector3(post, DoorHeight, depth), phosphor);
+            // Box("Left Bevel", m_Frame, new Vector3(-half + post * 0.55f, DoorHeight / 2f, depth * 0.35f),
+            //     new Vector3(post * 0.35f, DoorHeight * 0.96f, depth * 0.4f), dim);
+            // Box("Right Bevel", m_Frame, new Vector3(half - post * 0.55f, DoorHeight / 2f, depth * 0.35f),
+            //     new Vector3(post * 0.35f, DoorHeight * 0.96f, depth * 0.4f), dim);
 
             // Corner brackets at the four opening corners.
-            const float bracket = 0.14f;
-            foreach (var side in new[] { -1f, 1f })
-            {
-                Box($"Bracket Low {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - bracket / 2f), bracket / 2f, depth * 0.55f),
-                    new Vector3(bracket, 0.025f, 0.025f), phosphor);
-                Box($"Bracket Low V {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - 0.012f), bracket / 2f, depth * 0.55f),
-                    new Vector3(0.025f, bracket, 0.025f), phosphor);
-                Box($"Bracket High {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - bracket / 2f), DoorHeight - bracket / 2f, depth * 0.55f),
-                    new Vector3(bracket, 0.025f, 0.025f), phosphor);
-                Box($"Bracket High V {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - 0.012f), DoorHeight - bracket / 2f, depth * 0.55f),
-                    new Vector3(0.025f, bracket, 0.025f), phosphor);
-            }
+            // const float bracket = 0.14f;
+            // foreach (var side in new[] { -1f, 1f })
+            // {
+            //     Box($"Bracket Low {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - bracket / 2f), bracket / 2f, depth * 0.55f),
+            //         new Vector3(bracket, 0.025f, 0.025f), phosphor);
+            //     Box($"Bracket Low V {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - 0.012f), bracket / 2f, depth * 0.55f),
+            //         new Vector3(0.025f, bracket, 0.025f), phosphor);
+            //     Box($"Bracket High {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - bracket / 2f), DoorHeight - bracket / 2f, depth * 0.55f),
+            //         new Vector3(bracket, 0.025f, 0.025f), phosphor);
+            //     Box($"Bracket High V {side}", m_Frame, new Vector3(side * (DoorWidth / 2f - 0.012f), DoorHeight - bracket / 2f, depth * 0.55f),
+            //         new Vector3(0.025f, bracket, 0.025f), phosphor);
+            // }
 
-            // Horizontal scanline ribs on each post.
-            for (var i = 0; i < 7; i++)
-            {
-                var y = 0.22f + i * (DoorHeight - 0.4f) / 6f;
-                Box($"Scan L {i}", m_Frame, new Vector3(-half, y, depth * 0.55f), new Vector3(post * 1.2f, 0.012f, 0.02f), dim);
-                Box($"Scan R {i}", m_Frame, new Vector3(half, y, depth * 0.55f), new Vector3(post * 1.2f, 0.012f, 0.02f), dim);
-            }
+            // // Horizontal scanline ribs on each post.
+            // for (var i = 0; i < 7; i++)
+            // {
+            //     var y = 0.22f + i * (DoorHeight - 0.4f) / 6f;
+            //     Box($"Scan L {i}", m_Frame, new Vector3(-half, y, depth * 0.55f), new Vector3(post * 1.2f, 0.012f, 0.02f), dim);
+            //     Box($"Scan R {i}", m_Frame, new Vector3(half, y, depth * 0.55f), new Vector3(post * 1.2f, 0.012f, 0.02f), dim);
+            // }
 
-            // Lintel: a row of glyph cubes spelling a dense ASCII band.
-            Box("Lintel Bar", m_Frame, new Vector3(0f, DoorHeight + post / 2f, 0f),
-                new Vector3(DoorWidth + 2f * post, post, depth), phosphor);
-            var glyphs = AsciiGlyph.Ramp;
-            var count = glyphs.Length;
-            for (var i = 0; i < 11; i++)
-            {
-                var t = (i + 0.5f) / 11f;
-                var x = Mathf.Lerp(-DoorWidth / 2f + 0.06f, DoorWidth / 2f - 0.06f, t);
-                var ch = glyphs[AsciiGlyph.BrightnessToIndex(t, count)];
-                var cube = Box($"Glyph {ch}", m_Frame, new Vector3(x, DoorHeight + post + 0.05f, depth * 0.2f),
-                    new Vector3(0.07f, 0.07f, 0.07f), Color.Lerp(dim, phosphor, t));
-                cube.localRotation = Quaternion.Euler(0f, i * 17f, 8f);
-            }
+            // // Lintel: a row of glyph cubes spelling a dense ASCII band.
+            // Box("Lintel Bar", m_Frame, new Vector3(0f, DoorHeight + post / 2f, 0f),
+            //     new Vector3(DoorWidth + 2f * post, post, depth), phosphor);
+            // var glyphs = AsciiGlyph.Ramp;
+            // var count = glyphs.Length;
+            // for (var i = 0; i < 11; i++)
+            // {
+            //     var t = (i + 0.5f) / 11f;
+            //     var x = Mathf.Lerp(-DoorWidth / 2f + 0.06f, DoorWidth / 2f - 0.06f, t);
+            //     var ch = glyphs[AsciiGlyph.BrightnessToIndex(t, count)];
+            //     var cube = Box($"Glyph {ch}", m_Frame, new Vector3(x, DoorHeight + post + 0.05f, depth * 0.2f),
+            //         new Vector3(0.07f, 0.07f, 0.07f), Color.Lerp(dim, phosphor, t));
+            //     cube.localRotation = Quaternion.Euler(0f, i * 17f, 8f);
+            // }
 
-            Box("Sill", m_Frame, new Vector3(0f, 0.008f, 0f), new Vector3(DoorWidth, 0.016f, depth * 0.8f), dim);
+            // Box("Sill", m_Frame, new Vector3(0f, 0.008f, 0f), new Vector3(DoorWidth, 0.016f, depth * 0.8f), dim);
         }
 
         void BuildPeekWorld()
