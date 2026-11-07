@@ -64,36 +64,18 @@
     qrEl.innerHTML = "";
     qrEl.setAttribute("aria-label", "QR for room " + code);
 
-    // Desktop Safari often fails on GIF data-URLs from createDataURL.
-    // Prefer SVG (and canvas PNG), then remote image hosts.
+    // Canvas PNG first: most reliable on desktop Safari (SVG/GIF data-URLs flake).
     var make = window.qrcode || (typeof qrcode !== "undefined" ? qrcode : null);
     if (typeof make === "function") {
       try {
         var qr = make(0, "M");
         qr.addData(url);
         qr.make();
-
-        qrEl.innerHTML = qr.createSvgTag(6, 8);
-        var svg = qrEl.querySelector("svg");
-        if (svg) {
-          svg.setAttribute("width", "240");
-          svg.setAttribute("height", "240");
-          svg.style.width = "240px";
-          svg.style.height = "240px";
-          svg.style.display = "block";
-          return;
-        }
-      } catch (e1) {}
-
-      try {
-        var qr2 = make(0, "M");
-        qr2.addData(url);
-        qr2.make();
-        var canvas = document.createElement("canvas");
-        var modules = qr2.getModuleCount();
+        var modules = qr.getModuleCount();
         var cell = 6;
         var margin = 8;
         var size = modules * cell + margin * 2;
+        var canvas = document.createElement("canvas");
         canvas.width = size;
         canvas.height = size;
         var ctx = canvas.getContext("2d");
@@ -102,18 +84,17 @@
         ctx.fillStyle = "#000000";
         for (var r = 0; r < modules; r++) {
           for (var c = 0; c < modules; c++) {
-            if (qr2.isDark(r, c))
+            if (qr.isDark(r, c))
               ctx.fillRect(margin + c * cell, margin + r * cell, cell, cell);
           }
         }
-        var img = document.createElement("img");
-        img.width = 240;
-        img.height = 240;
-        img.alt = "QR for room " + code;
-        img.src = canvas.toDataURL("image/png");
-        qrEl.appendChild(img);
+        // Append the canvas itself so Safari never has to decode a data-URL.
+        canvas.style.width = "240px";
+        canvas.style.height = "240px";
+        canvas.style.display = "block";
+        qrEl.appendChild(canvas);
         return;
-      } catch (e2) {}
+      } catch (e1) {}
     }
 
     var data = encodeURIComponent(url);
@@ -159,14 +140,26 @@
         resolve(window.Peer);
         return;
       }
-      var script = document.createElement("script");
-      script.src = "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js";
-      script.onload = function () {
-        if (window.Peer) resolve(window.Peer);
-        else reject(new Error("PeerJS failed to load"));
-      };
-      script.onerror = function () { reject(new Error("Could not load PeerJS")); };
-      document.head.appendChild(script);
+      var urls = [
+        "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js",
+        "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js",
+      ];
+      var i = 0;
+      function tryNext() {
+        if (i >= urls.length) {
+          reject(new Error("Could not load PeerJS"));
+          return;
+        }
+        var script = document.createElement("script");
+        script.src = urls[i++];
+        script.onload = function () {
+          if (window.Peer) resolve(window.Peer);
+          else tryNext();
+        };
+        script.onerror = tryNext;
+        document.head.appendChild(script);
+      }
+      tryNext();
     });
   }
 
@@ -193,6 +186,7 @@
     var stopped = false;
     var delay = RETRY_START_MS;
     var generation = 0;
+    var emptyStream = new MediaStream();
 
     function clearTimer() {
       if (timer) {
@@ -201,21 +195,37 @@
       }
     }
 
-    function schedule(reason) {
+    // Soft retry: keep the same PeerJS peer, only re-dial the phone.
+    // Full connect() was slow because it re-registered a new peer every attempt.
+    function scheduleCall(reason) {
       if (stopped) return;
       clearVideo();
       show(pairEl, true);
       show(stageEl, false);
+      setStatus(reason || "waiting for phone…");
+      clearTimer();
+      timer = setTimeout(function () {
+        if (stopped) return;
+        if (peer && !peer.destroyed && peer.open) dial(generation);
+        else connect();
+      }, delay);
+      delay = nextRetryMs(delay);
+    }
+
+    function schedulePeer(reason) {
+      if (stopped) return;
       setStatus(reason || "Reconnecting…");
       clearTimer();
       timer = setTimeout(connect, delay);
       delay = nextRetryMs(delay);
     }
 
-    function wireCall(gen) {
-      callRef = peer.call(hostPeerId(code), new MediaStream());
+    function dial(gen) {
+      try { if (callRef) callRef.close(); } catch (e) {}
+      callRef = null;
+      callRef = peer.call(hostPeerId(code), emptyStream);
       if (!callRef) {
-        schedule("Could not reach the phone");
+        scheduleCall("Could not reach the phone");
         return;
       }
       callRef.on("stream", function (stream) {
@@ -224,10 +234,10 @@
         attachStream(stream);
       });
       callRef.on("close", function () {
-        if (gen === generation && !stopped) schedule("Stream paused. Retrying…");
+        if (gen === generation && !stopped) scheduleCall("Stream paused. Retrying…");
       });
       callRef.on("error", function () {
-        if (gen === generation && !stopped) schedule("Call error. Retrying…");
+        if (gen === generation && !stopped) scheduleCall("Call error. Retrying…");
       });
     }
 
@@ -238,29 +248,29 @@
       destroyPeer(peer, callRef);
       peer = null;
       callRef = null;
-      clearVideo();
 
-      peer = new Peer(undefined, { debug: 1 });
+      peer = new Peer(undefined, { debug: 0 });
       peer.on("open", function () {
         if (gen !== generation || stopped) return;
-        setStatus("Waiting for the phone…");
-        wireCall(gen);
+        delay = RETRY_START_MS;
+        setStatus("scan this QR with Share view");
+        dial(gen);
       });
       peer.on("disconnected", function () {
         if (gen !== generation || stopped || !peer || peer.destroyed) return;
         try { peer.reconnect(); }
-        catch (e) { schedule("Signaling dropped. Retrying…"); }
+        catch (e) { schedulePeer("Signaling dropped. Retrying…"); }
       });
       peer.on("error", function (err) {
         if (gen !== generation || stopped) return;
         var type = err && err.type;
         if (type === "peer-unavailable") {
-          // Phone has not hosted yet: poll fast until Share view scans this QR.
+          // Phone has not scanned yet: cheap re-dial, do not rebuild the peer.
           delay = RETRY_START_MS;
-          schedule("scan this QR with the phone");
+          scheduleCall("scan this QR with the phone");
           return;
         }
-        schedule("Retrying…");
+        schedulePeer("Retrying…");
       });
     }
 
@@ -274,7 +284,8 @@
         stopped = true;
         clearTimer();
         destroyPeer(peer, callRef);
-        location.search = "?room=" + encodeURIComponent(newRoomCode());
+        // Full reload mints a brand-new QR room.
+        location.href = location.pathname + "?t=" + Date.now();
       },
     };
 
@@ -408,19 +419,19 @@
       return;
     }
 
-    if (!room) {
-      room = newRoomCode();
-      history.replaceState({}, "", "?room=" + encodeURIComponent(room));
-    }
+    // Every refresh gets a brand-new room/QR. Reusing ?room= left people waiting
+    // forever on a dead PeerJS host from the previous page load.
+    room = newRoomCode();
+    history.replaceState({}, "", "?room=" + encodeURIComponent(room));
 
-    // Draw the QR before PeerJS loads so the page is never a blank box.
+    // Draw the QR before PeerJS loads so Safari always has something to scan.
     showPairingQr(room);
     setStatus("scan this QR with Share view");
 
     loadPeerJs()
       .then(function (Peer) { startViewer(Peer, room); })
       .catch(function (err) {
-        setStatus((err && err.message ? err.message : String(err)) + " (QR still works after refresh)");
+        setStatus((err && err.message ? err.message : String(err)) + " — QR is ready, retry PeerJS");
       });
   }
 
