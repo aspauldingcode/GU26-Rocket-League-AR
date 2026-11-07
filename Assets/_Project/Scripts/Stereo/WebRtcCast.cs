@@ -36,7 +36,7 @@ namespace CardboardXR.Stereo
             $"{PagesBaseUrl}?role=host&unity=1&room={Uri.EscapeDataString(room)}&t={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
 
         // Matches webrtc.js nextRetryMs: backoff for reconnect messaging / host rebind.
-        public static int NextRetryMs(int current, int startMs = 1200, int maxMs = 8000)
+        public static int NextRetryMs(int current, int startMs = 400, int maxMs = 3000)
         {
             var next = (int)(Math.Max(current, 1) * 1.6);
             if (next < startMs) next = startMs;

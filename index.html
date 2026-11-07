@@ -1,118 +1,105 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Rocket League AR</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        --bg: #0b1210;
-        --fg: #e8fff0;
-        --muted: #9bb5a4;
-        --line: #24352c;
-        --accent: #3dff8a;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        font: 16px/1.4 system-ui, -apple-system, sans-serif;
-        background: var(--bg);
-        color: var(--fg);
-        display: grid;
-        place-items: center;
-        padding: 1.25rem;
-      }
-      main {
-        width: min(22rem, 100%);
-        text-align: center;
-      }
-      h1 {
-        margin: 0;
-        font-size: 1.35rem;
-      }
-      #status {
-        margin: 0.6rem 0 0;
-        color: var(--muted);
-        min-height: 1.4em;
-      }
-      #pair {
-        margin: 1.1rem auto 0;
-      }
-      #qr {
-        width: min(16rem, 70vw);
-        aspect-ratio: 1;
-        background: #fff;
-        border-radius: 0.75rem;
-        padding: 0.7rem;
-        display: block;
-        margin: 0 auto;
-      }
-      #room {
-        display: inline-block;
-        margin-top: 0.75rem;
-        color: var(--accent);
-        font: 600 1.05rem/1 ui-monospace, Menlo, monospace;
-        letter-spacing: 0.04em;
-      }
-      #stage {
-        margin-top: 1rem;
-        background: #000;
-        border: 1px solid var(--line);
-        border-radius: 0.75rem;
-        overflow: hidden;
-        aspect-ratio: 16 / 9;
-      }
-      #view {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        display: block;
-        background: #000;
-      }
-      #actions {
-        margin-top: 0.85rem;
-        display: flex;
-        justify-content: center;
-        gap: 0.5rem;
-      }
-      button {
-        border: 0;
-        border-radius: 0.5rem;
-        padding: 0.65rem 0.95rem;
-        background: var(--accent);
-        color: #042012;
-        font: 600 0.95rem/1 system-ui, sans-serif;
-        cursor: pointer;
-      }
-      button.secondary {
-        background: transparent;
-        color: var(--fg);
-        border: 1px solid var(--line);
-      }
-      [hidden] { display: none !important; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Rocket League AR</h1>
-      <p id="status">Starting…</p>
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rocket League AR</title>
+  <style type="text/css">
+    body {
+      margin: 0;
+      padding: 0;
+      color: #111;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 14px;
+      background: #222 url("arch-linux-tshirt.jpg") center center / cover no-repeat fixed;
+    }
+    table.page {
+      width: 100%;
+      height: 100vh;
+      border: 0;
+    }
+    td.center {
+      text-align: center;
+      vertical-align: middle;
+    }
+    .box {
+      display: inline-block;
+      background: #f4f4f4;
+      border: 2px solid #000;
+      padding: 12px 16px 14px;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    #status {
+      margin: 0 0 10px;
+      color: #333;
+    }
+    #qr {
+      display: block;
+      margin: 0 auto;
+      width: 240px;
+      height: 240px;
+      background: #fff;
+      border: 1px solid #000;
+    }
+    #room {
+      margin-top: 8px;
+      font-weight: bold;
+    }
+    #stage {
+      margin: 10px auto 0;
+      width: 420px;
+      max-width: 90vw;
+      background: #000;
+      border: 2px solid #000;
+    }
+    #view {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #000;
+    }
+    #actions {
+      margin-top: 10px;
+    }
+    input[type="button"] {
+      font-family: "Courier New", Courier, monospace;
+      font-size: 13px;
+      background: #ddd;
+      border: 2px outset #ccc;
+      padding: 3px 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <table class="page" cellpadding="0" cellspacing="0">
+    <tr>
+      <td class="center">
+        <div class="box">
+          <h1>Rocket League AR</h1>
+          <div id="status">loading...</div>
 
-      <div id="pair">
-        <img id="qr" alt="Pairing QR code" width="280" height="280" />
-        <div id="room">····</div>
-      </div>
+          <div id="pair">
+            <img id="qr" alt="QR" width="240" height="240">
+            <div id="room">----</div>
+          </div>
 
-      <div id="stage" hidden>
-        <video id="view" autoplay playsinline muted></video>
-      </div>
+          <div id="stage" style="display:none">
+            <video id="view" autoplay playsinline muted></video>
+          </div>
 
-      <div id="actions" hidden>
-        <button type="button" id="reconnect">Reconnect</button>
-        <button type="button" id="leave" class="secondary">New QR</button>
-      </div>
-    </main>
-    <script src="webrtc.js"></script>
-  </body>
+          <div id="actions" style="display:none">
+            <input type="button" id="reconnect" value="Reconnect">
+            <input type="button" id="leave" value="New QR">
+          </div>
+        </div>
+      </td>
+    </tr>
+  </table>
+  <script src="webrtc.js"></script>
+</body>
 </html>

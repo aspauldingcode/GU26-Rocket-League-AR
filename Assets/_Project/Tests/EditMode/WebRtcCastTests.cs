@@ -39,12 +39,12 @@ namespace CardboardXR.Stereo.Tests
         [Test]
         public void RetryBackoffClimbsThenCaps()
         {
-            var a = WebRtcCast.NextRetryMs(1200);
+            var a = WebRtcCast.NextRetryMs(400);
             var b = WebRtcCast.NextRetryMs(a);
-            var c = WebRtcCast.NextRetryMs(8000);
-            Assert.That(a, Is.GreaterThan(1200));
+            var c = WebRtcCast.NextRetryMs(3000);
+            Assert.That(a, Is.GreaterThan(400));
             Assert.That(b, Is.GreaterThan(a));
-            Assert.That(c, Is.EqualTo(8000));
+            Assert.That(c, Is.EqualTo(3000));
         }
 
         [Test]

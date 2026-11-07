@@ -4,8 +4,9 @@
   "use strict";
 
   var PEER_PREFIX = "gurlar-";
-  var RETRY_START_MS = 1200;
-  var RETRY_MAX_MS = 8000;
+  // Keep retries snappy so a phone scan turns into video right away.
+  var RETRY_START_MS = 400;
+  var RETRY_MAX_MS = 3000;
   var params = new URLSearchParams(location.search);
   var hash = new URLSearchParams(location.hash.replace(/^#/, ""));
   var room = (params.get("room") || hash.get("room") || "").trim().toLowerCase();
@@ -27,7 +28,8 @@
   }
 
   function show(el, on) {
-    if (el) el.hidden = !on;
+    if (!el) return;
+    el.style.display = on ? "" : "none";
   }
 
   function hostPeerId(code) {
@@ -58,7 +60,7 @@
     if (roomEl) roomEl.textContent = code;
     if (!qrEl) return;
     var data = encodeURIComponent(pageUrlForRoom(code));
-    qrEl.src = "https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=" + data;
+    qrEl.src = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=" + data;
     qrEl.alt = "QR for room " + code;
     show(pairEl, true);
   }
@@ -112,7 +114,8 @@
     videoEl.play().catch(function () {});
     show(pairEl, false);
     show(stageEl, true);
-    setStatus("Live");
+    show(actionsEl, true);
+    setStatus("streaming");
   }
 
   function startViewer(Peer, code) {
@@ -189,7 +192,9 @@
         if (gen !== generation || stopped) return;
         var type = err && err.type;
         if (type === "peer-unavailable") {
-          schedule("Open Share view and scan this QR");
+          // Phone has not hosted yet: poll fast until Share view scans this QR.
+          delay = RETRY_START_MS;
+          schedule("scan this QR with the phone");
           return;
         }
         schedule("Retrying…");
