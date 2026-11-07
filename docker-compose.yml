@@ -1,0 +1,8 @@
+# Docker container to run the Signalling server
+version: '3.8'
+services:
+  signaling:
+    build: .
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
