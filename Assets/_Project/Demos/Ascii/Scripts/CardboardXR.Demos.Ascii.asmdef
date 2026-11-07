@@ -1,0 +1,24 @@
+{
+    "name": "CardboardXR.Demos.Ascii",
+    "rootNamespace": "CardboardXR.Demos.Ascii",
+    "references": [
+        "CardboardXR.Demos",
+        "CardboardXR.Stereo",
+        "CardboardXR.Hands",
+        "CardboardXR.Interaction",
+        "UnityEngine.UI",
+        "CardboardXR.UI",
+        "Unity.TextMeshPro",
+        "Unity.XR.ARFoundation",
+        "Unity.XR.ARSubsystems"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
