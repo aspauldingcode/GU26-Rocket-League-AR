@@ -21,6 +21,14 @@ mkdir -p $LOGS
 cd $P || exit 1
 if pgrep -f "Unity.app/Contents/MacOS/Unity" >/dev/null; then echo "Unity is running; close it first"; exit 1; fi
 
+# Prefer an explicit serial (emulator script sets this), else -e when CARDBOARDXR_EMULATOR=1.
+ADB=(adb)
+if [ -n "${CARDBOARDXR_ANDROID_SERIAL:-}" ]; then
+    ADB=(adb -s "$CARDBOARDXR_ANDROID_SERIAL")
+elif [ "${CARDBOARDXR_EMULATOR:-}" = "1" ]; then
+    ADB=(adb -e)
+fi
+
 echo "== EditMode tests"
 rm -f $LOGS/tests.xml
 $U -batchmode -projectPath $P -runTests -testPlatform EditMode -testResults $LOGS/tests.xml -logFile $LOGS/tests.log
@@ -43,24 +51,24 @@ $U -batchmode -projectPath $P -buildTarget Android -executeMethod ProjectBootstr
 grep -E "\[Build\]|error CS" $LOGS/build.log | head -20
 grep -q "Build Succeeded" $LOGS/build.log || exit 1
 
-echo "== install"
+echo "== install (${ADB[*]})"
 adb start-server >/dev/null 2>&1
 # Stop it first: installing over the running app and then launching crashes Unity's activity.
-adb shell am force-stop $PKG
+"${ADB[@]}" shell am force-stop $PKG
 # Stop unless it installs: launching anyway would start the build already on the phone, and its logs
 # would look like the new one's. USB drops are common, so this happens.
-INSTALL=$(adb install -r Builds/CardboardXR.apk 2>&1 | tail -1)
+INSTALL=$("${ADB[@]}" install -r Builds/CardboardXR.apk 2>&1 | tail -1)
 echo "$INSTALL"
 case "$INSTALL" in
     *Success*) ;;
     *) echo "Install failed; not launching. Run 'adb kill-server; adb start-server', check 'adb devices', then run this again."; exit 1 ;;
 esac
-adb logcat -c
-adb shell am start -W -n $PKG/com.unity3d.player.UnityPlayerGameActivity "$@" | grep -E "Status|LaunchState"
+"${ADB[@]}" logcat -c
+"${ADB[@]}" shell am start -W -n $PKG/com.unity3d.player.UnityPlayerGameActivity "$@" | grep -E "Status|LaunchState"
 sleep 32
-adb logcat -d -s Unity:V AndroidRuntime:E | grep -E "\[Demos\]|\[AR\]|\[Pose\]|\[Room\]|\[Anchor\]|\[Hands\]|\[Pinch\]|\[Perf\]|\[Passthrough\]|\[Frames\]|\[Hitch\]|\[Stereo\] (Head|Preferred)|Exception|FATAL" | grep -v AssetPackManager | cut -c1-300 | head -40
+"${ADB[@]}" logcat -d -s Unity:V AndroidRuntime:E | grep -E "\[Demos\]|\[AR\]|\[Pose\]|\[Room\]|\[Anchor\]|\[Hands\]|\[Pinch\]|\[Perf\]|\[Passthrough\]|\[Frames\]|\[Hitch\]|\[Stereo\] (Head|Preferred)|Exception|FATAL" | grep -v AssetPackManager | cut -c1-300 | head -40
 echo "== display votes"
-adb shell dumpsys display 2>/dev/null | grep -A14 "mVotesByDisplay" | grep -E "PRIORITY" | cut -c1-160 | head -10
+"${ADB[@]}" shell dumpsys display 2>/dev/null | grep -A14 "mVotesByDisplay" | grep -E "PRIORITY" | cut -c1-160 | head -10 || true
 echo "== temperatures"
-adb shell dumpsys thermalservice 2>/dev/null | sed -n '/Current temperatures from HAL:/,/Current cooling/p' | grep -oE "mValue=[0-9.]+, mType=[0-9]+, mName=[A-Za-z_-]+" | grep -iE "skin|battery|cpu|gpu" | head -8
+"${ADB[@]}" shell dumpsys thermalservice 2>/dev/null | sed -n '/Current temperatures from HAL:/,/Current cooling/p' | grep -oE "mValue=[0-9.]+, mType=[0-9]+, mName=[A-Za-z_-]+" | grep -iE "skin|battery|cpu|gpu" | head -8 || true
 echo "== the whole session log: adb pull /storage/emulated/0/Android/data/$PKG/files/session.log"

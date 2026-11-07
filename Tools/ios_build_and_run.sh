@@ -6,6 +6,8 @@
 # Launch options come last, as on Android, and go to Tools/ios_launch.sh, which does the launching.
 # The Unity step takes a few minutes and switches the active build target to iOS, so the next
 # Android build re-imports assets. --xcode skips it when only native or signing changes matter.
+# If the Editor is already open and Builds/iOS exists, the Unity step is skipped automatically so
+# you can keep working in the Editor; set CARDBOARDXR_FORCE_UNITY=1 to require a fresh export.
 #
 # Needs, once, on this Mac: Xcode signed into an Apple ID (Xcode > Settings > Accounts; a free
 # personal team is enough), the iPhone connected and trusted, and Developer Mode on the phone
@@ -30,8 +32,26 @@ if [ "${1:-}" = "--xcode" ]; then XCODE_ONLY=1; shift; fi
 # Reject a mistyped option now rather than after a five-minute build.
 zsh $P/Tools/ios_launch.sh --check "$@" || exit 1
 
+# Batchmode can't lock the project while the Editor has it open. Prefer a fast Xcode rebuild from
+# the last export so `make install` works without quitting Unity. Force a fresh export with
+# CARDBOARDXR_FORCE_UNITY=1 (which still needs the Editor closed).
+if [ $XCODE_ONLY = 0 ] && pgrep -f "Unity.app/Contents/MacOS/Unity" >/dev/null; then
+    if [ "${CARDBOARDXR_FORCE_UNITY:-}" = "1" ]; then
+        echo "Unity is running; close it first (CARDBOARDXR_FORCE_UNITY=1 needs the project lock)."
+        exit 1
+    fi
+    if [ -d "$XCODE_PROJECT" ]; then
+        echo "== Unity is open; reusing $XCODE_PROJECT (set CARDBOARDXR_FORCE_UNITY=1 for a fresh export)"
+        XCODE_ONLY=1
+    else
+        echo "Unity is running and there is no iOS export yet at $XCODE_PROJECT."
+        echo "In Unity: CardboardXR > Build iOS Export (keep Editor open), then re-run make install."
+        echo "Or close Unity once for a batch export. Later installs can leave the Editor open."
+        exit 1
+    fi
+fi
+
 if [ $XCODE_ONLY = 0 ]; then
-    if pgrep -f "Unity.app/Contents/MacOS/Unity" >/dev/null; then echo "Unity is running; close it first"; exit 1; fi
     zsh $P/Tools/make_videos.sh || exit 1
     echo "== Unity export"
     rm -f $LOGS/ios.log

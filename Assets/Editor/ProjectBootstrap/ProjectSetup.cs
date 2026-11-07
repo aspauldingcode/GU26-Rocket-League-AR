@@ -266,7 +266,9 @@ namespace ProjectBootstrap
                 ARCoreSettings.currentSettings = arcore;
             }
 
-            arcore.requirement = ARCoreSettings.Requirement.Required;
+            // Optional so the APK still installs on Android Emulator / devices without Play Services
+            // for AR; 6DoF and passthrough need ARCore at runtime, 3DoF (--ei dof 3) does not.
+            arcore.requirement = ARCoreSettings.Requirement.Optional;
             // Depth helps place hands in 3D but not every ARCore phone has it.
             arcore.depth = ARCoreSettings.Requirement.Optional;
             EditorUtility.SetDirty(arcore);

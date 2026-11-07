@@ -62,21 +62,31 @@ namespace ProjectBootstrap
         // Invoke with: -executeMethod ProjectBootstrap.StereoBuilder.BuildAndroid
         public static void BuildAndroid()
         {
-            BuildAndExit(BuildScenes(), AndroidApk, BuildTarget.Android);
+            BuildPlayer(BuildScenes(), AndroidApk, BuildTarget.Android, exitEditor: true);
         }
 
         // The same scenes as an Xcode project for the iPhone, which Xcode then builds and signs.
         // Invoke with: -buildTarget iOS -executeMethod ProjectBootstrap.StereoBuilder.BuildIos
         public static void BuildIos()
         {
-            BuildAndExit(BuildScenes(), XcodeProject, BuildTarget.iOS);
+            BuildPlayer(BuildScenes(), XcodeProject, BuildTarget.iOS, exitEditor: true);
+        }
+
+        // Export while the Editor stays open, then `make install` / `make ios-xcode` can sign and
+        // install without quitting Unity (batchmode can't lock the project the Editor already has).
+        [MenuItem("CardboardXR/Build iOS Export (keep Editor open)")]
+        public static void BuildIosInEditor()
+        {
+            BuildPlayer(BuildScenes(), XcodeProject, BuildTarget.iOS, exitEditor: false);
         }
 
         // A release build unless CARDBOARDXR_DEVELOPMENT=1: a development build is debuggable on
         // Android and lets the Unity Profiler connect over the local network. CARDBOARDXR_BUNDLE_ID
         // builds under another app id, since an iOS bundle id belongs to the Apple team that first
         // signed it. The first scene is the one the app starts in.
-        static void BuildAndExit(string[] scenePaths, string outputPath, BuildTarget target)
+        // CARDBOARDXR_ANDROID_ARCHS=emulator (or all) also builds x86_64 so Android Emulator images
+        // work; device builds stay ARM64-only.
+        static void BuildPlayer(string[] scenePaths, string outputPath, BuildTarget target, bool exitEditor)
         {
             var bundleId = System.Environment.GetEnvironmentVariable("CARDBOARDXR_BUNDLE_ID");
             if (!string.IsNullOrWhiteSpace(bundleId))
@@ -85,12 +95,28 @@ namespace ProjectBootstrap
                     bundleId.Trim());
                 Debug.Log($"[Build] App id {bundleId.Trim()}");
             }
+
+            var previousArchs = PlayerSettings.Android.targetArchitectures;
+            if (target == BuildTarget.Android)
+            {
+                var archs = System.Environment.GetEnvironmentVariable("CARDBOARDXR_ANDROID_ARCHS");
+                if (string.Equals(archs, "emulator", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(archs, "all", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    PlayerSettings.Android.targetArchitectures =
+                        AndroidArchitecture.ARM64 | AndroidArchitecture.X86_64;
+                    Debug.Log("[Build] Android architectures ARM64 + x86_64 (emulator)");
+                }
+            }
+
             var development = System.Environment.GetEnvironmentVariable("CARDBOARDXR_DEVELOPMENT") == "1";
             var version = PlayerSettings.bundleVersion;
             var versionCode = PlayerSettings.Android.bundleVersionCode;
             if (!ApplyRelease(target))
             {
-                EditorApplication.Exit(1);
+                if (target == BuildTarget.Android)
+                    PlayerSettings.Android.targetArchitectures = previousArchs;
+                if (exitEditor) EditorApplication.Exit(1);
                 return;
             }
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
@@ -106,11 +132,14 @@ namespace ProjectBootstrap
             PlayerSettings.Android.useCustomKeystore = false;
             PlayerSettings.Android.keystoreName = "";
             PlayerSettings.Android.keyaliasName = "";
+            if (target == BuildTarget.Android)
+                PlayerSettings.Android.targetArchitectures = previousArchs;
 
             var summary = report.summary;
             Debug.Log($"[Build] {(development ? "Development build" : "Build")} {summary.result}: {outputPath} " +
                       $"({summary.totalSize / 1e6:F1} MB, {summary.totalTime}, {summary.totalErrors} errors)");
-            EditorApplication.Exit(summary.result == BuildResult.Succeeded ? 0 : 1);
+            if (exitEditor)
+                EditorApplication.Exit(summary.result == BuildResult.Succeeded ? 0 : 1);
         }
 
         // For published builds (Tools/release_android.sh). CARDBOARDXR_VERSION (1.2.3) sets the version
