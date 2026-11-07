@@ -128,21 +128,15 @@ namespace CardboardXR.Demos.Ascii
             Crossed?.Invoke(inside);
         }
 
-        // Bevelled posts, corner brackets, scanline ribs and a lintel of glyph blocks — a terminal
-        // gate, not Portal's crystal doorway.
+        // The door frame model, baked into the prefab under "Frame" by AsciiSetup and fitted so its
+        // opening is the doorway. It rises and sinks with the gate (Animate scales Frame).
         void BuildFrame()
         {
+            m_Frame = transform.Find("Frame");
+            if (m_Frame != null)
+                return;
             m_Frame = new GameObject("Frame").transform;
             m_Frame.SetParent(transform, false);
-            // Frame ornaments temporarily off while iterating the AR surface remap.
-            // var phosphor = new Color(0.2f, 1f, 0.45f);
-            // var dim = phosphor * 0.55f;
-            // const float post = 0.07f;
-            // const float depth = 0.11f;
-            // var half = DoorWidth / 2f + post / 2f;
-            // Box("Left Post", m_Frame, new Vector3(-half, DoorHeight / 2f, 0f), new Vector3(post, DoorHeight, depth), phosphor);
-            // Box("Right Post", m_Frame, new Vector3(half, DoorHeight / 2f, 0f), new Vector3(post, DoorHeight, depth), phosphor);
-            // ... brackets / scanlines / lintel / sill ...
         }
 
         // Depth masks only — real room meshes come from AsciiSurfaces while the gate is up.

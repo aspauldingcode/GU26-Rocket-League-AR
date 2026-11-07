@@ -16,6 +16,15 @@ namespace ProjectBootstrap
         const string AngelPrefabPath = "Assets/_Project/Demos/Ascii/Weeping Angel.prefab";
         // The source OBJ is ~2.85 m tall; this brings it to roughly human height.
         const float AngelScale = 0.7f;
+        const string FrameModelPath = "Assets/_Project/Demos/Ascii/Models/DoorFrame.obj";
+        const string GatePrefabPath = "Assets/_Project/Demos/Ascii/Ascii Gate.prefab";
+        // The door frame OBJ's opening, in its own units (meters, whatever its header says): posts'
+        // inner faces at x = ±0.4629, floor at y = -1.0085, lintel's underside at y = 0.9084, and
+        // 0.2246 deep from z = 0. It's fitted so the opening is exactly the gate's doorway.
+        const float FrameInnerWidth = 2f * 0.4628785f;
+        const float FrameInnerBottom = -1.0085495f;
+        const float FrameInnerTop = 0.9084095f;
+        const float FrameDepth = 0.2246280f;
 
         public override string Name => "Ascii";
         public override int Order => 60;
@@ -65,6 +74,7 @@ namespace ProjectBootstrap
             serializedPortal.FindProperty("m_Glow").objectReferenceValue = glow;
             serializedPortal.FindProperty("m_Mask").objectReferenceValue = mask;
             serializedPortal.ApplyModifiedPropertiesWithoutUndo();
+            AddDoorFrame(portal.transform, ascii);
             var prefab = PrefabUtility.SaveAsPrefabAsset(portal.gameObject, $"{folder}/Ascii Gate.prefab");
             Object.DestroyImmediate(portal.gameObject);
 
@@ -108,6 +118,77 @@ namespace ProjectBootstrap
                 if (Application.isBatchMode)
                     EditorApplication.Exit(0);
             }
+        }
+
+        // Batch: Unity -executeMethod ProjectBootstrap.AsciiSetup.EnsureDoorFrame
+        // Puts the door frame model into the existing gate prefab, keeping its GUID and scene links.
+        public static void EnsureDoorFrame()
+        {
+            try
+            {
+                AssetDatabase.ImportAsset(FrameModelPath, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+                var ascii = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Project/Demos/Ascii/Ascii Surface.mat");
+                var root = PrefabUtility.LoadPrefabContents(GatePrefabPath);
+                try
+                {
+                    AddDoorFrame(root.transform, ascii);
+                    PrefabUtility.SaveAsPrefabAsset(root, GatePrefabPath);
+                    var renderers = root.transform.Find("Frame").GetComponentsInChildren<Renderer>();
+                    if (renderers.Length > 0)
+                    {
+                        var bounds = renderers[0].bounds;
+                        foreach (var renderer in renderers)
+                            bounds.Encapsulate(renderer.bounds);
+                        Debug.Log($"[Ascii] Door frame bounds min {bounds.min:F3} max {bounds.max:F3} " +
+                                  $"(doorway {AsciiWorld.DoorWidth} x {AsciiWorld.DoorHeight} m)");
+                    }
+                }
+                finally
+                {
+                    PrefabUtility.UnloadPrefabContents(root);
+                }
+                AssetDatabase.SaveAssets();
+                Debug.Log($"[Ascii] Door frame is now the gate's frame in {GatePrefabPath}");
+            }
+            finally
+            {
+                if (Application.isBatchMode)
+                    EditorApplication.Exit(0);
+            }
+        }
+
+        // "Frame" under the gate, which AsciiWorld animates, holding the model fitted to the doorway:
+        // centered on x, standing on the floor, and straddling the door plane in depth.
+        static void AddDoorFrame(Transform gate, Material skin)
+        {
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(FrameModelPath);
+            if (model == null)
+                throw new System.IO.FileNotFoundException("Door frame OBJ missing at " + FrameModelPath);
+
+            var old = gate.Find("Frame");
+            if (old != null)
+                Object.DestroyImmediate(old.gameObject);
+            var frame = new GameObject("Frame").transform;
+            frame.SetParent(gate, false);
+
+            var instance = (GameObject)PrefabUtility.InstantiatePrefab(model);
+            instance.name = "Door Frame";
+            instance.transform.SetParent(frame, false);
+            var scale = new Vector3(AsciiWorld.DoorWidth / FrameInnerWidth,
+                AsciiWorld.DoorHeight / (FrameInnerTop - FrameInnerBottom), 1f);
+            instance.transform.localScale = scale;
+            instance.transform.localPosition = new Vector3(0f, -FrameInnerBottom * scale.y, -FrameDepth / 2f);
+            instance.transform.localRotation = Quaternion.identity;
+
+            foreach (var renderer in instance.GetComponentsInChildren<Renderer>(true))
+            {
+                if (skin != null)
+                    renderer.sharedMaterial = skin;
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+            }
+            foreach (var collider in instance.GetComponentsInChildren<Collider>(true))
+                Object.DestroyImmediate(collider);
         }
 
         static GameObject BuildAngelPrefab(string folder, Material stone, Material ascii)
