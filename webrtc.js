@@ -64,36 +64,21 @@
     qrEl.innerHTML = "";
     qrEl.setAttribute("aria-label", "QR for room " + code);
 
-    // Canvas PNG first: most reliable on desktop Safari (SVG/GIF data-URLs flake).
+    // Desktop Safari (esp. with fingerprinting protection) can blank canvas/SVG/GIF
+    // QR renders. An HTML table of black/white cells always paints.
     var make = window.qrcode || (typeof qrcode !== "undefined" ? qrcode : null);
     if (typeof make === "function") {
       try {
         var qr = make(0, "M");
         qr.addData(url);
         qr.make();
-        var modules = qr.getModuleCount();
-        var cell = 6;
-        var margin = 8;
-        var size = modules * cell + margin * 2;
-        var canvas = document.createElement("canvas");
-        canvas.width = size;
-        canvas.height = size;
-        var ctx = canvas.getContext("2d");
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, size, size);
-        ctx.fillStyle = "#000000";
-        for (var r = 0; r < modules; r++) {
-          for (var c = 0; c < modules; c++) {
-            if (qr.isDark(r, c))
-              ctx.fillRect(margin + c * cell, margin + r * cell, cell, cell);
-          }
+        qrEl.innerHTML = qr.createTableTag(6, 4);
+        var table = qrEl.querySelector("table");
+        if (table) {
+          table.style.margin = "0 auto";
+          table.setAttribute("role", "presentation");
+          return;
         }
-        // Append the canvas itself so Safari never has to decode a data-URL.
-        canvas.style.width = "240px";
-        canvas.style.height = "240px";
-        canvas.style.display = "block";
-        qrEl.appendChild(canvas);
-        return;
       } catch (e1) {}
     }
 
@@ -102,6 +87,7 @@
     remote.width = 240;
     remote.height = 240;
     remote.alt = "QR for room " + code;
+    remote.referrerPolicy = "no-referrer";
     remote.src = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=10&data=" + data;
     remote.onerror = function () {
       remote.onerror = null;

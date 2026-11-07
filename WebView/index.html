@@ -88,12 +88,17 @@
       display: block;
       margin: 0 auto;
       width: 240px;
-      height: 240px;
+      min-height: 240px;
       background: #fff;
       border: 1px solid #000;
       overflow: hidden;
+      line-height: 0;
     }
-    #qr svg, #qr img, #qr canvas {
+    #qr table {
+      border-collapse: collapse;
+      margin: 0 auto !important;
+    }
+    #qr img, #qr canvas, #qr svg {
       display: block;
       width: 240px;
       height: 240px;
@@ -160,10 +165,10 @@
       </td>
     </tr>
   </table>
-  <script src="qrcode.min.js"></script>
+  <script src="qrcode.min.js?v=table1"></script>
   <script>
     if (typeof qrcode === "function") window.qrcode = qrcode;
   </script>
-  <script src="webrtc.js"></script>
+  <script src="webrtc.js?v=table1"></script>
 </body>
 </html>
