@@ -36,12 +36,15 @@
     }
     #wallpaper-blur {
       background-size: cover;
+      background-position: center 42%;
       transform: scale(1.12);
       filter: blur(28px) saturate(1.15) brightness(0.72);
       -webkit-filter: blur(28px) saturate(1.15) brightness(0.72);
     }
     #wallpaper-sharp {
+      /* Keep the tee logo near mid-frame; UI sits below it. */
       background-size: contain;
+      background-position: center 38%;
       filter: none;
       -webkit-filter: none;
     }
@@ -55,12 +58,13 @@
     }
     td.center {
       text-align: center;
-      vertical-align: middle;
-      padding: 16px;
+      /* QR panel low so the centered shirt logo stays clear. */
+      vertical-align: bottom;
+      padding: 16px 16px 6vh;
     }
     .box {
       display: inline-block;
-      background: #f4f4f4;
+      background: rgba(244, 244, 244, 0.92);
       border: 2px solid #000;
       padding: 12px 16px 14px;
       max-width: 92vw;
