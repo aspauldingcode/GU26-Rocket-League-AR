@@ -90,7 +90,7 @@ namespace ProjectBootstrap
             importer.mipmapEnabled = false;
             importer.filterMode = FilterMode.Point;
             importer.wrapMode = TextureWrapMode.Clamp;
-            importer.npotTextureSupport = TextureImporterNPOTScale.None;
+            importer.npotScale = TextureImporterNPOTScale.None;
             importer.textureCompression = TextureImporterCompression.Uncompressed;
             importer.maxTextureSize = 4096;
             importer.SaveAndReimport();
