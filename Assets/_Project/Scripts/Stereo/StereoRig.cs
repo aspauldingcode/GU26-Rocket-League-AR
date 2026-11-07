@@ -139,14 +139,13 @@ namespace CardboardXR.Stereo
         }
 
         // Off-screen mono camera for Share: same midpoint/FOV as phone mono, but never draws to the
-        // display. The headset can stay in stereo while GH Pages gets a clean undistorated view.
+        // display and never calls SetMono/Rebuild. The headset stays in whatever mode it was in.
         public void ConfigureCastCamera(Camera castCamera)
         {
             if (castCamera == null)
                 return;
-            if (m_Lens == null && isActiveAndEnabled)
-                Rebuild();
 
+            // Do not Rebuild() here: Share must not tear down the stereo eyes.
             var mid = m_Lens != null
                 ? (m_Lens.GetEyeOffset(Eye.Left) + m_Lens.GetEyeOffset(Eye.Right)) / 2f
                 : Vector3.zero;
@@ -160,9 +159,10 @@ namespace CardboardXR.Stereo
             castCamera.farClipPlane = m_FarClip;
             castCamera.fieldOfView = m_MonoFieldOfView;
             castCamera.cullingMask = ~0 & ~(1 << CompositorLayer | 1 << RightEyeOnlyLayer);
+            // High depth is fine: with a targetTexture set this camera never composites to the phone.
             castCamera.depth = 50;
             castCamera.allowHDR = false;
-            castCamera.enabled = true;
+            castCamera.allowMSAA = false;
         }
 
         void Rebuild()

@@ -176,12 +176,14 @@ namespace CardboardXR.Stereo
         {
             M3Fade.Hide(m_Menu);
             SettingsPanelHub.Close();
+            // Share is world-space only — never open the phone 2D Scan Panel / never SetScanning.
+            if (m_ScanPanel != null && m_ScanPanel.activeSelf)
+                ShowScanPanel(false);
 
             if (m_Cast != null && m_Cast.IsCasting)
             {
                 m_Cast.StopCast();
                 UpdateShareLabel();
-                ShowToast("Stopped sharing");
                 return;
             }
 
@@ -202,11 +204,14 @@ namespace CardboardXR.Stereo
             m_Session.enabled = true;
             m_CameraManager.enabled = true;
             m_Scanner.enabled = true;
-            // Keep StereoRig on so palm/pinch XR stays live while aiming at the laptop QR.
+            // Phone display stays whatever StereoRig already is (usually stereo). Do not SetMono,
+            // do not disable the rig, do not open 2D overlays for this flow.
+            if (m_Rig != null && !m_Rig.enabled)
+                m_Rig.enabled = true;
             ShowWorldCastScan(true);
             if (m_WorldCastStatus != null)
                 m_WorldCastStatus.text = k_CastScanPrompt;
-            Debug.Log("[Cast] World-space share scan started");
+            Debug.Log("[Cast] World-space share scan started (3D only, display untouched)");
         }
 
         void StopWorldCastScan()
@@ -355,12 +360,14 @@ namespace CardboardXR.Stereo
             {
                 if (WebRtcCast.TryParseRoom(text, out var room))
                 {
-                    // Valid GH Pages room: start off-screen mono cast; Pages flips QR → live stream.
+                    // Valid GH Pages room: off-screen mono → Pages; phone stereo unchanged; no 2D UI.
+                    var displayMono = m_Rig != null && m_Rig.IsMono;
                     StopWorldCastScan();
                     m_Cast.StartCast(room);
                     UpdateShareLabel();
-                    ShowToast("Streaming to the laptop…");
-                    Debug.Log($"[Cast] Auto-started room {room}");
+                    if (m_Rig != null && m_Rig.IsMono != displayMono)
+                        Debug.LogError($"[Cast] Display mode changed after StartCast (was mono={displayMono})");
+                    Debug.Log($"[Cast] Auto-started room {room}; phone IsMono={m_Rig != null && m_Rig.IsMono}");
                     return;
                 }
 

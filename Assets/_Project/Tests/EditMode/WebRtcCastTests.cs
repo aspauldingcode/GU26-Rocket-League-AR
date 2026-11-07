@@ -90,6 +90,28 @@ namespace CardboardXR.Stereo.Tests
         }
 
         [Test]
+        public void StartCastDoesNotFlipPhoneDisplayToMono()
+        {
+            var head = new GameObject("Head");
+            var rig = head.AddComponent<StereoRig>();
+            // Default IsMono is false (stereo). Share must leave that alone.
+            Assert.That(rig.IsMono, Is.False);
+
+            var host = new GameObject("Cast Host").AddComponent<WebRtcCastHost>();
+            host.Configure(rig);
+            host.StartCast("stereo01");
+
+            Assert.That(host.IsCasting, Is.True);
+            Assert.That(rig.IsMono, Is.False, "casting must not call SetMono(true)");
+            Assert.That(host.DisplayModeUnchanged, Is.True);
+
+            host.StopCast();
+            Assert.That(rig.IsMono, Is.False);
+            Object.DestroyImmediate(host.gameObject);
+            Object.DestroyImmediate(head);
+        }
+
+        [Test]
         public void QrTextureIsSquare()
         {
             var texture = WebRtcCast.MakeQr(WebRtcCast.ViewerUrl("abcd1234"), 128);
