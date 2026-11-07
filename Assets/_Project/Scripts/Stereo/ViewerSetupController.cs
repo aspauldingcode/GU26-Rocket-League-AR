@@ -260,11 +260,11 @@ namespace CardboardXR.Stereo
                 return;
 
             m_ToolbarShare = M3.ToolbarItem("Share", panel, "cast", "Share", Vector2.zero, 92f, ShareScreen);
-            var apps = panel.Find("Apps");
-            var recenter = panel.Find("Recenter");
-            var scan = panel.Find("Scan");
-            var tracking = panel.Find("Tracking Mode");
-            var passthrough = panel.Find("Passthrough");
+            var apps = panel.Find("Apps") as RectTransform;
+            var recenter = panel.Find("Recenter") as RectTransform;
+            var scan = panel.Find("Scan") as RectTransform;
+            var tracking = panel.Find("Tracking Mode") as RectTransform;
+            var passthrough = panel.Find("Passthrough") as RectTransform;
             if (apps == null || recenter == null || tracking == null || passthrough == null)
                 return;
 
