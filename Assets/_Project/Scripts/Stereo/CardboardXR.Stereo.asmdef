@@ -9,6 +9,7 @@
         "CardboardXR.Tracking",
         "Unity.XR.Management",
         "CardboardXR.UI",
+        "CardboardXR.Interaction",
         "Unity.TextMeshPro"
     ],
     "includePlatforms": [],

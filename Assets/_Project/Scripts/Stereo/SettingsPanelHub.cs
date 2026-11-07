@@ -7,7 +7,9 @@ namespace CardboardXR.Stereo
     public static class SettingsPanelHub
     {
         public static event Action OpenRequested;
+        public static event Action CloseRequested;
 
         public static void Open() => OpenRequested?.Invoke();
+        public static void Close() => CloseRequested?.Invoke();
     }
 }

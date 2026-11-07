@@ -2,7 +2,6 @@
     "name": "CardboardXR.Interaction",
     "rootNamespace": "CardboardXR.Interaction",
     "references": [
-        "CardboardXR.Stereo",
         "Unity.InputSystem",
         "UnityEngine.UI",
         "CardboardXR.UI",

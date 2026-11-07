@@ -154,11 +154,13 @@
     videoEl.srcObject = stream;
     videoEl.playsInline = true;
     videoEl.muted = true;
+    videoEl.autoplay = true;
     videoEl.play().catch(function () {});
     show(pairEl, false);
     show(stageEl, true);
     show(actionsEl, true);
-    setStatus("streaming");
+    if (document.body) document.body.classList.add("live");
+    setStatus("live");
   }
 
   function startViewer(Peer, code) {
@@ -186,6 +188,7 @@
     function scheduleCall(reason) {
       if (stopped) return;
       clearVideo();
+      if (document.body) document.body.classList.remove("live");
       show(pairEl, true);
       show(stageEl, false);
       setStatus(reason || "waiting for phone…");
@@ -412,7 +415,7 @@
 
     // Draw the QR before PeerJS loads so Safari always has something to scan.
     showPairingQr(room);
-    setStatus("scan this QR with Share view");
+    setStatus("scan with Share — stream starts automatically");
 
     loadPeerJs()
       .then(function (Peer) { startViewer(Peer, room); })
