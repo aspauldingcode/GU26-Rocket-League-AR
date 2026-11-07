@@ -147,7 +147,8 @@
             // Request Screen Capture (iOS requires a user gesture/button click for this)
             const displayStream = await navigator.mediaDevices.getDisplayMedia({
               video: {
-                cursor: "always"
+                video: true,
+                audio: false
               },
               audio: false // Screen audio is restricted on iOS Safari
             });
