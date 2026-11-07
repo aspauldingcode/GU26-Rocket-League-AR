@@ -1,0 +1,80 @@
+# Normalize text for cross-machine Unity + git sync (Force Text serialization).
+* text=auto eol=lf
+
+# Source / shaders
+*.cs text diff=csharp
+*.shader text
+*.cginc text
+*.hlsl text
+*.compute text
+*.json text
+*.xml text
+*.txt text
+*.md text
+*.sh text eol=lf
+*.zsh text eol=lf
+
+# Unity YAML (ProjectSettings EditorSettings: Force Text)
+*.meta text eol=lf
+*.asset text eol=lf
+*.prefab text eol=lf
+*.unity text eol=lf
+*.anim text eol=lf
+*.controller text eol=lf
+*.mat text eol=lf
+*.overrideController text eol=lf
+*.physicMaterial text eol=lf
+*.physicsMaterial2D text eol=lf
+*.mask text eol=lf
+*.brush text eol=lf
+*.flare text eol=lf
+*.fontsettings text eol=lf
+*.guiskin text eol=lf
+*.giparams text eol=lf
+*.renderTexture text eol=lf
+*.spriteatlas text eol=lf
+*.terrainlayer text eol=lf
+*.mixer text eol=lf
+*.preset text eol=lf
+*.signal text eol=lf
+*.wlt text eol=lf
+*.asmdef text eol=lf
+*.asmref text eol=lf
+*.inputactions text eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.psd binary
+*.tga binary
+*.tif binary
+*.tiff binary
+*.exr binary
+*.hdr binary
+*.bmp binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.a binary
+*.exe binary
+*.pdb binary
+*.mdb binary
+*.mp3 binary
+*.ogg binary
+*.wav binary
+*.mp4 binary
+*.mov binary
+*.fbx binary
+*.obj binary
+*.blend binary
+*.3ds binary
+*.dae binary
+*.skp binary
+*.ttf binary
+*.otf binary
+*.ttc binary
+*.dfont binary
+*.cubemap binary
+*.unitypackage binary
