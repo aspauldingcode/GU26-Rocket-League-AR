@@ -364,8 +364,7 @@
       leave: function () {
         stopped = true;
         if (relay) relay.end();
-        // "New QR": forget this tab's room so the reload mints a fresh one.
-        try { sessionStorage.removeItem("gurlar-room"); } catch (e) {}
+        // Reloading mints a fresh room, like any new load.
         location.href = location.pathname + "?t=" + Date.now();
       },
     };
@@ -517,14 +516,11 @@
       return;
     }
 
-    // The room survives a refresh of this tab (sessionStorage), so an accidental reload —
-    // or a crash — reconnects to the phone still streaming instead of orphaning it behind a
-    // new QR. A new tab, or "New QR", mints a fresh room.
-    if (!room) {
-      try { room = sessionStorage.getItem("gurlar-room") || ""; } catch (e) {}
-    }
-    if (!room) room = newRoomCode();
-    try { sessionStorage.setItem("gurlar-room", room); } catch (e) {}
+    // Every load is a new, independent pairing: a fresh room, rendered as a QR at once.
+    // Nothing is shared or carried over — any number of phone/display pairs can run at the
+    // same time in the same room code space without ever seeing or blocking each other;
+    // only whoever scans this tab's QR joins this tab.
+    room = newRoomCode();
     history.replaceState({}, "", "?room=" + encodeURIComponent(room));
     var aspect = displayAspect(window.screen && screen.width, window.screen && screen.height);
     showPairingQr(room, aspect);
