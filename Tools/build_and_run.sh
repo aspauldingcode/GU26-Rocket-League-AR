@@ -11,6 +11,7 @@
 # If the Editor is already open and Builds/ASCIIRooms.apk exists, the Unity step is skipped
 # automatically (same idea as make install / iOS). Set CARDBOARDXR_FORCE_UNITY=1 for a fresh
 # batch build (Editor must be closed). Logs go to $LOGS.
+# Default target is a physical USB phone (`adb -d`). Emulator: make android-emu / CARDBOARDXR_EMULATOR=1.
 # USB drops are common: if install doesn't print "Success", run `adb kill-server; adb start-server`
 # and install again, since the launch that follows would otherwise start the previous build.
 set -u
@@ -22,7 +23,7 @@ U=${UNITY:-/Applications/Unity/Hub/Editor/6000.6.8f1/Unity.app/Contents/MacOS/Un
 PKG=${CARDBOARDXR_BUNDLE_ID:-com.rocketleague.gurlar}
 LOGS=${TMPDIR:-/tmp}/cardboardxr
 APK=$P/Builds/ASCIIRooms.apk
-# Older builds used the previous product name; reuse that APK if the new path isn't there yet.
+# Older builds used the previous product name; allow --install-only of that path only.
 LEGACY_APK=$P/Builds/CardboardXR.apk
 mkdir -p $LOGS
 cd $P || exit 1
@@ -51,28 +52,35 @@ set -- "${LAUNCH_ARGS[@]}"
 
 # Batchmode can't lock the project while the Editor has it open. Prefer installing the last APK
 # so `make install-android` works without quitting Unity (mirrors Tools/ios_build_and_run.sh).
+# Only reuse Builds/ASCIIRooms.apk — never the legacy CardboardXR.apk (wrong product / stale).
 if [ $INSTALL_ONLY -eq 0 ] && pgrep -f "Unity.app/Contents/MacOS/Unity" >/dev/null; then
     if [ "${CARDBOARDXR_FORCE_UNITY:-}" = "1" ]; then
         echo "Unity is running; close it first (CARDBOARDXR_FORCE_UNITY=1 needs the project lock)."
         exit 1
     fi
-    if resolve_apk; then
+    if [ -f "$APK" ]; then
         echo "== Unity is open; reusing $APK (set CARDBOARDXR_FORCE_UNITY=1 for a fresh build)"
         INSTALL_ONLY=1
     else
         echo "Unity is running and there is no Android APK yet at $APK."
         echo "Close Unity once for a batch build (make install-android), or build an APK from the Editor."
+        if [ -f "$LEGACY_APK" ]; then
+            echo "Found stale $LEGACY_APK — ignoring it (rebuild to create $APK)."
+        fi
         echo "Later installs can leave the Editor open when $APK already exists."
         exit 1
     fi
 fi
 
-# Prefer an explicit serial (emulator script sets this), else -e when CARDBOARDXR_EMULATOR=1.
+# Prefer an explicit serial (emulator script sets this), else -e when CARDBOARDXR_EMULATOR=1,
+# else a physical USB phone (-d). Never silently install to an emulator during USB installs.
 ADB=(adb)
 if [ -n "${CARDBOARDXR_ANDROID_SERIAL:-}" ]; then
     ADB=(adb -s "$CARDBOARDXR_ANDROID_SERIAL")
 elif [ "${CARDBOARDXR_EMULATOR:-}" = "1" ]; then
     ADB=(adb -e)
+else
+    ADB=(adb -d)
 fi
 
 usb_android_hint() {
@@ -80,6 +88,15 @@ usb_android_hint() {
     if command -v ioreg >/dev/null 2>&1; then
         ioreg -p IOUSB -w0 2>/dev/null | grep -E 'Android|SAMSUNG_Android|Pixel|OnePlus|Xiaomi|Huawei' || true
     fi
+}
+
+list_physical_adb() {
+    # Require a USB transport. Emulator TCP aliases (127.0.0.1:5555) are not phones.
+    adb devices -l 2>/dev/null | awk 'NR>1 && $2=="device" && /usb:/'
+}
+
+list_emulator_adb() {
+    adb devices -l 2>/dev/null | awk 'NR>1 && $2=="device" && ($1 ~ /^emulator-/ || $0 ~ /emulator/)'
 }
 
 adb_ready() {
@@ -92,7 +109,8 @@ adb_ready() {
         "${ADB[@]}" get-state 2>/dev/null | grep -q device
         return $?
     fi
-    adb devices 2>/dev/null | awk 'NR>1 && $2=="device" {found=1} END{exit found?0:1}'
+    # USB phone only — adb -d ignores emulators and TCP aliases.
+    adb -d get-state 2>/dev/null | grep -q device
 }
 
 describe_adb() {
@@ -107,19 +125,23 @@ describe_adb() {
         echo "Pull down the USB notification → File transfer / MTP (not Charging only)."
         echo "Accept the 'Allow USB debugging?' prompt if it appears."
     else
-        echo "No Android phone/emulator is visible to ADB."
+        echo "No Android phone is visible to ADB."
         echo "Plug in a phone with USB debugging, or: make android-emu"
+    fi
+    if list_emulator_adb | grep -q .; then
+        echo "Note: an emulator is running, but make install-android targets USB only."
+        echo "Use make android-emu to install there."
     fi
 }
 
 # Wait for a usable device. Default 120 s after the build so a late USB-debug prompt can be accepted.
 wait_for_adb() {
     local seconds=${1:-120}
-    local i state
+    local i
     if adb_ready; then
         return 0
     fi
-    echo "== waiting up to ${seconds}s for an ADB device"
+    echo "== waiting up to ${seconds}s for a USB ADB device"
     describe_adb
     for i in $(seq 1 $seconds); do
         sleep 1
@@ -167,7 +189,22 @@ install_and_launch() {
             ;;
     esac
     "${ADB[@]}" logcat -c
-    "${ADB[@]}" shell am start -W -n $PKG/com.unity3d.player.UnityPlayerGameActivity "$@" | grep -E "Status|LaunchState"
+    # -W often times out on cold Unity starts; treat a running process as success.
+    local LAUNCH_OUT
+    LAUNCH_OUT=$("${ADB[@]}" shell am start -W -n $PKG/com.unity3d.player.UnityPlayerGameActivity "$@" 2>&1 || true)
+    echo "$LAUNCH_OUT" | grep -E "Status|LaunchState|Error|Activity" || true
+    local PID
+    PID=$("${ADB[@]}" shell pidof $PKG 2>/dev/null | tr -d '\r' || true)
+    if [ -z "$PID" ]; then
+        sleep 2
+        PID=$("${ADB[@]}" shell pidof $PKG 2>/dev/null | tr -d '\r' || true)
+    fi
+    if [ -n "$PID" ]; then
+        echo "Launch ok (pid $PID)"
+    else
+        echo "Launch failed: $PKG is not running."
+        exit 1
+    fi
     sleep 32
     "${ADB[@]}" logcat -d -s Unity:V AndroidRuntime:E | grep -E "\[Demos\]|\[AR\]|\[Pose\]|\[Room\]|\[Anchor\]|\[Hands\]|\[Pinch\]|\[Perf\]|\[Passthrough\]|\[Frames\]|\[Hitch\]|\[Stereo\] (Head|Preferred)|Exception|FATAL" | grep -v AssetPackManager | cut -c1-300 | head -40
     echo "== display votes"
@@ -182,15 +219,10 @@ if [ $INSTALL_ONLY -eq 1 ]; then
     exit 0
 fi
 
-# Fail before the long Unity build when nothing can receive the APK.
+# Prefer building even when USB debugging is still off — the long wait belongs after the APK exists.
 if ! adb_ready; then
-    echo "== no ADB device yet; checking before the build"
+    echo "== no USB ADB device yet; building anyway, then waiting to install"
     describe_adb
-    if ! wait_for_adb "${CARDBOARDXR_ADB_WAIT_BEFORE:-45}"; then
-        echo "Aborting before Unity build. Enable USB debugging (or start an emulator), then re-run."
-        echo "If Builds/ASCIIRooms.apk already exists: make install-android-apk"
-        exit 1
-    fi
 fi
 
 echo "== EditMode tests"

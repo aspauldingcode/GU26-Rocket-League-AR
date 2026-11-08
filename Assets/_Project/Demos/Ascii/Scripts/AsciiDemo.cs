@@ -41,6 +41,7 @@ namespace CardboardXR.Demos.Ascii
         CoreServices m_Core;
         AsciiWorld m_Portal;
         AsciiSurfaces m_Surfaces;
+        AsciiLights m_Lights;
         AsciiMeshes m_Meshes;
         AsciiAngels m_Angels;
         AsciiMathQuiz m_Quiz;
@@ -76,6 +77,8 @@ namespace CardboardXR.Demos.Ascii
             else
                 FindWalls(planes, core.Boundary);
             m_Surfaces.Configure(m_AsciiMaterial, planes);
+            m_Lights = core.Boundary.gameObject.AddComponent<AsciiLights>();
+            m_Lights.Configure(planes, core.Head);
             // Keep finding floors, tables, seats and walls after the lobby scan ends.
             core.Boundary.HoldDetection = true;
             core.Boundary.ScanRoom();
@@ -142,6 +145,12 @@ namespace CardboardXR.Demos.Ascii
                 Destroy(m_Surfaces);
                 m_Surfaces = null;
             }
+            if (m_Lights != null)
+            {
+                m_Lights.SetActive(false);
+                Destroy(m_Lights);
+                m_Lights = null;
+            }
             if (m_Meshes != null)
             {
                 m_Meshes.SetActive(false);
@@ -188,6 +197,7 @@ namespace CardboardXR.Demos.Ascii
             AsciiTerminal.Active = true;
             SetCapture(true);
             m_Surfaces?.SetLive(true);
+            m_Lights?.SetActive(true);
             var distance = Vector3.Distance(m_Core.Head.position, placed.transform.position);
             Debug.Log($"[Ascii] Gate opened {distance:F1} m away");
             m_Audio.PlayOneShot(m_Whoosh, 0.4f);
@@ -313,8 +323,9 @@ namespace CardboardXR.Demos.Ascii
 
         public void EndPinch() => m_Notes?.End();
 
-        // Inside: drop the passthrough screen and mono eyes so Cardboard stereo and the hand
-        // skeleton return. Outside: restore whatever passthrough was on before the crossing.
+        // Inside: ASCII fills the room; the door's camera window still shows the real room until
+        // SealDoor finishes. The fullscreen passthrough mesh turns off so stereo/hands/ASCII work,
+        // but RetainCapture keeps feeding that doorway. Outside: restore prior passthrough.
         void SetInsideWorld(bool inside)
         {
             if (m_Core == null || inside == m_InsideWorld)
@@ -325,10 +336,11 @@ namespace CardboardXR.Demos.Ascii
             if (inside)
             {
                 m_HadPassthrough = m_Core.Passthrough.IsOn;
+                // Keep capturing for the doorway window; only drop the fullscreen passthrough mesh.
                 if (m_HadPassthrough)
                     m_Core.Passthrough.Choose(false);
                 VirtualEnvironment.SetAllHidden(true);
-                Debug.Log("[Ascii] Passthrough off inside the gate (stereo + hand model)");
+                Debug.Log("[Ascii] Inside: ASCII room on; live camera stays in the doorway until it seals");
                 return;
             }
             if (m_HadPassthrough)
@@ -380,6 +392,7 @@ namespace CardboardXR.Demos.Ascii
             SetInsideWorld(false);
             SetCapture(false);
             m_Surfaces?.SetLive(false);
+            m_Lights?.SetActive(false);
             m_Meshes?.SetActive(false);
             m_Quiz?.Stop();
             m_Angels?.SetInside(false);

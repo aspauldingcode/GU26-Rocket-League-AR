@@ -77,18 +77,22 @@ namespace CardboardXR.Demos.Ascii
         }
 
         // After walking in: the frame stays where it was placed and sinks shut so the game can start.
-        // The ASCII room is already up; this only seals the doorway behind the player.
+        // The live camera window stays in the opening until the door finishes closing — the real room
+        // is cut off by the seal, not by killing the feed the moment you cross.
         public void SealDoor(Action sealedDoor = null)
         {
             ReturnUnlocked = false;
-            if (m_InsideMask != null)
-                m_InsideMask.SetActive(false);
             if (m_Frame == null)
             {
+                if (m_InsideMask != null)
+                    m_InsideMask.SetActive(false);
                 sealedDoor?.Invoke();
                 return;
             }
             m_Frame.gameObject.SetActive(true);
+            // Magenta window: terminal puts the camera image here while the opening shrinks.
+            if (m_InsideMask != null)
+                m_InsideMask.SetActive(true);
             if (m_Animating != null)
                 StopCoroutine(m_Animating);
             var from = Mathf.Clamp01(m_Frame.localScale.y);
@@ -96,6 +100,8 @@ namespace CardboardXR.Demos.Ascii
             {
                 if (m_Frame != null)
                     m_Frame.gameObject.SetActive(false);
+                if (m_InsideMask != null)
+                    m_InsideMask.SetActive(false);
                 sealedDoor?.Invoke();
             }));
         }
@@ -182,8 +188,14 @@ namespace CardboardXR.Demos.Ascii
                 m_Frame.gameObject.SetActive(true);
                 if (m_Frame.localScale.y < 0.5f)
                     m_Frame.localScale = Vector3.one;
+                m_InsideMask.SetActive(false);
             }
-            m_InsideMask.SetActive(inside && ReturnUnlocked);
+            else
+            {
+                // Live camera through the doorway until SealDoor finishes (or until unlock for escape).
+                m_Frame.gameObject.SetActive(true);
+                m_InsideMask.SetActive(true);
+            }
             if (!announce)
                 return;
             Debug.Log(inside ? "[Ascii] Stepped through into the ASCII dimension" : "[Ascii] Stepped back out into the room");

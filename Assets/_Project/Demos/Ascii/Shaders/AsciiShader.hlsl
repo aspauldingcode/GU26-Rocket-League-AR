@@ -25,6 +25,9 @@ CBUFFER_END
 TEXTURE2D(_GlyphAtlas);
 SAMPLER(sampler_GlyphAtlas);
 
+// From AsciiLights: unit direction toward the strongest scanned lamp.
+float4 _AsciiPrimaryLight;
+
 struct AsciiAttributes
 {
     float3 positionOS : POSITION;
@@ -101,8 +104,12 @@ half4 AsciiFrag(AsciiVaryings input) : SV_Target
         return half4(1.0, 0.0, 1.0, 1.0);
 
     float3 n = normalize(input.normalWS);
-    // Same direction the terminal marches when it casts a shadow.
-    float3 lightDir = normalize(float3(0.25, 0.9, 0.3));
+    // Primary light from AsciiLights (ceilings / windows); falls back to a soft overhead key.
+    float3 lightDir = _AsciiPrimaryLight.xyz;
+    if (dot(lightDir, lightDir) < 0.01)
+        lightDir = normalize(float3(0.25, 0.9, 0.3));
+    else
+        lightDir = normalize(lightDir);
     if (_Figure > 0.5)
         return half4(AsciiAngel(input, n, lightDir), 1.0);
 

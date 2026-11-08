@@ -18,6 +18,16 @@ float AsciiDepthBrightness(float eyeDepth)
     return 1.0 - smoothstep(0.4, 6.5, d);
 }
 
+// Hall mist: _AsciiFog = (start, end, density, mistStrength). Mirrors AsciiLightMap.FogAmount.
+float AsciiFogAmount(float eyeDepth, float4 fog)
+{
+    float start = fog.x;
+    float end = max(fog.y, start + 0.01);
+    float t = saturate((eyeDepth - start) / (end - start));
+    t = t * t * (3.0 - 2.0 * t);
+    return t * fog.z;
+}
+
 float2 AsciiCellPixels(float eyeDepth)
 {
     return eyeDepth < k_AsciiNearDepth ? k_AsciiNearCell : k_AsciiFarCell;

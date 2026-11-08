@@ -37,12 +37,14 @@ namespace CardboardXR.Demos.Ascii
         static readonly int k_StoneId = Shader.PropertyToID("_AsciiStone");
 
         const float k_StoneSeconds = 1.6f;
-        // Question sits low and a little aside so the angel's face stays in view above it.
-        const float k_QuestionDistance = 1.55f;
-        const float k_QuestionHeight = -0.35f;
-        const float k_QuestionSide = 0.45f;
-        const float k_BoardDistance = 0.7f;
-        const float k_AnswerDistance = 1.3f;
+        // One depth plane in front: question above, answers below, scratch pad off to the left.
+        // Heights are panel centers in meters — keep them farther apart than half the canvas heights
+        // (~0.4 m each) or the glass surfaces eat each other.
+        const float k_QuizDistance = 1.5f;
+        const float k_QuestionHeight = 0.32f;
+        const float k_AnswersHeight = -0.62f;
+        const float k_BoardHeight = 0.05f;
+        const float k_BoardSide = -0.95f;
         const float k_FrontDistance = 1.4f;
         // Fake frosted glass: translucent M3 surface (no fullscreen blur pass).
         static readonly Color k_Glass = M3Theme.WithAlpha(M3Theme.SurfaceContainer, 0.42f);
@@ -248,10 +250,10 @@ namespace CardboardXR.Demos.Ascii
 
         void PlaceQuizPanels()
         {
-            PlaceOffset(m_Question, m_PanelForward, k_QuestionDistance, k_QuestionHeight, 0f);
-            PlaceOffset(m_Board, m_PanelForward, k_BoardDistance, -0.55f, -k_QuestionSide * 0.5f);
-            // Answers sit just under the equation so question + choices share one view.
-            PlaceOffset(m_Answers, m_PanelForward, k_AnswerDistance, -0.15f, 0f);
+            // Same distance so nearer glass never occludes farther glass.
+            PlaceOffset(m_Question, m_PanelForward, k_QuizDistance, k_QuestionHeight, 0f);
+            PlaceOffset(m_Answers, m_PanelForward, k_QuizDistance, k_AnswersHeight, 0f);
+            PlaceOffset(m_Board, m_PanelForward, k_QuizDistance, k_BoardHeight, k_BoardSide);
         }
 
         void ShowFeedback()
@@ -287,7 +289,7 @@ namespace CardboardXR.Demos.Ascii
             m_PlainEquation.gameObject.SetActive(true);
             m_Count.text = "";
             m_Status.text = "Walk back through the doorway to escape. Keep an eye on the angel.";
-            WorldUi.PlaceInFront(m_Question, m_Head, k_QuestionDistance, 5f);
+            WorldUi.PlaceInFront(m_Question, m_Head, k_QuizDistance, 5f);
             M3Fade.Show(m_Question.gameObject);
         }
 
@@ -475,44 +477,43 @@ namespace CardboardXR.Demos.Ascii
         // front of it writes notes rather than hitting a panel.
         void BuildQuestion()
         {
-            m_Question = M3.Canvas("Ascii Question", transform, new Vector2(640f, 400f), k_QuestionDistance, k_Glass);
-            m_QuestionHeader = M3.Text("Header", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(-140f, 165f),
+            m_Question = M3.Canvas("Ascii Question", transform, new Vector2(640f, 360f), k_QuizDistance, k_Glass);
+            m_QuestionHeader = M3.Text("Header", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(-140f, 148f),
                 new Vector2(320f, 32f), M3Theme.OnSurfaceVariant, TextAlignmentOptions.Left);
-            m_Mistakes = M3.Text("Mistakes", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(140f, 165f),
+            m_Mistakes = M3.Text("Mistakes", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(140f, 148f),
                 new Vector2(320f, 32f), M3Theme.OnSurfaceVariant, TextAlignmentOptions.Right);
-            var equation = M3.Group("Equation", m_Question, new Vector2(0f, 45f), new Vector2(560f, 190f));
+            var equation = M3.Group("Equation", m_Question, new Vector2(0f, 35f), new Vector2(560f, 170f));
             m_Equation = equation.gameObject.AddComponent<RawImage>();
             m_Equation.raycastTarget = false;
             m_PlainEquation = Big(M3.Text("Plain Equation", m_Question, "", M3Theme.Type.HeadlineSmall,
-                new Vector2(0f, 45f), new Vector2(560f, 120f)), 56f);
-            m_Count = Big(M3.Text("Count", m_Question, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, -95f),
-                new Vector2(300f, 80f), M3Theme.Primary), 64f);
-            m_Status = M3.Text("Status", m_Question, "", M3Theme.Type.BodyLarge, new Vector2(0f, -162f),
-                new Vector2(590f, 48f), M3Theme.OnSurfaceVariant);
+                new Vector2(0f, 35f), new Vector2(560f, 110f)), 56f);
+            m_Count = Big(M3.Text("Count", m_Question, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, -90f),
+                new Vector2(300f, 64f), M3Theme.Primary), 56f);
+            m_Status = M3.Text("Status", m_Question, "", M3Theme.Type.BodyLarge, new Vector2(0f, -148f),
+                new Vector2(590f, 40f), M3Theme.OnSurfaceVariant);
         }
 
         void BuildBoard()
         {
-            m_Board = M3.Canvas("Ascii Scratch Pad", transform, new Vector2(460f, 280f), k_BoardDistance,
+            m_Board = M3.Canvas("Ascii Scratch Pad", transform, new Vector2(420f, 260f), k_QuizDistance,
                 M3Theme.WithAlpha(M3Theme.Surface, 0.35f));
             M3.Text("Label", m_Board, "Scratch pad: pinch in the air to write", M3Theme.Type.BodyMedium,
-                new Vector2(0f, 118f), new Vector2(420f, 28f), M3Theme.OnSurfaceVariant);
+                new Vector2(0f, 108f), new Vector2(380f, 28f), M3Theme.OnSurfaceVariant);
         }
 
-        // Behind the player, away from the angel.
         void BuildAnswers()
         {
-            m_Answers = WorldUi.Panel("Ascii Answers", transform, new Vector2(680f, 400f), k_AnswerDistance, k_GlassHigh);
-            m_AnswersHeader = M3.Text("Header", m_Answers, "", M3Theme.Type.TitleMedium, new Vector2(0f, 165f),
+            m_Answers = WorldUi.Panel("Ascii Answers", transform, new Vector2(680f, 360f), k_QuizDistance, k_GlassHigh);
+            m_AnswersHeader = M3.Text("Header", m_Answers, "", M3Theme.Type.TitleMedium, new Vector2(0f, 148f),
                 new Vector2(620f, 32f), M3Theme.OnSurfaceVariant);
-            m_AnswersTimer = Big(M3.Text("Timer", m_Answers, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, 118f),
-                new Vector2(620f, 48f)), 36f);
+            m_AnswersTimer = Big(M3.Text("Timer", m_Answers, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, 105f),
+                new Vector2(620f, 40f)), 32f);
             m_Choices = new M3Button[4];
             const float width = 300f;
             for (var i = 0; i < m_Choices.Length; i++)
             {
                 var index = i;
-                var position = new Vector2(i % 2 == 0 ? -160f : 160f, i < 2 ? 36f : -48f);
+                var position = new Vector2(i % 2 == 0 ? -160f : 160f, i < 2 ? 28f : -52f);
                 var choice = M3.Button($"Answer {k_Letters[i]}", m_Answers, "", M3Button.Variant.Tonal, position,
                     () => Choose(index), width: width);
                 choice.Label.fontSize = 26f;
@@ -522,7 +523,7 @@ namespace CardboardXR.Demos.Ascii
                 m_Choices[i] = choice;
             }
             m_Feedback = M3.Text("Feedback", m_Answers, "", M3Theme.Type.TitleMedium, new Vector2(0f, -140f),
-                new Vector2(620f, 48f));
+                new Vector2(620f, 40f));
         }
 
         void BuildEnd()
