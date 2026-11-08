@@ -8,7 +8,10 @@ Shader "CardboardXR/Demos/AsciiSurface"
         _UseMeshNormal ("Use Mesh Normal", Float) = 0
         _Volume ("Volume Classify", Float) = 0
         _Figure ("Figure", Float) = 0
+        _Window ("Window", Float) = 0
         _Extrude ("Vertex Extrude (m)", Float) = 0.01
+        _GlyphAtlas ("Glyph Atlas", 2D) = "white" {}
+        _GlyphCount ("Glyph Count", Float) = 70
     }
 
     SubShader

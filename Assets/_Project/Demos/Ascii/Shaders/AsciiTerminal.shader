@@ -27,6 +27,7 @@ Shader "CardboardXR/Demos/AsciiTerminal"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
             #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
+            #include "AsciiGlyphs.hlsl"
 
             TEXTURE2D(_GlyphAtlas);
             SAMPLER(sampler_GlyphAtlas);
@@ -39,6 +40,18 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 half4 _Paper;
             CBUFFER_END
 
+            // Set by AsciiDemo and AsciiPeople. The camera image keeps updating with the
+            // passthrough screen off; its frustum maps a view direction to its UV.
+            TEXTURE2D(_AsciiCameraImage);
+            TEXTURE2D(_AsciiPersonMask);
+            TEXTURE2D(_AsciiPersonMaskPrev);
+            float4 _AsciiCameraFrustum;
+            float _AsciiCameraOn;
+            float _AsciiPersonOn;
+            float _AsciiPersonBlend;
+            // 0 once the room is fully drawn; from 1 down to 0 the glyphs grow outward from the head.
+            float _AsciiWave;
+
             static const float3 k_Light = float3(0.25, 0.9, 0.3);
 
             // The room pass writes one green. Hands and the door are not that hue.
@@ -47,41 +60,49 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 return color.g > 0.25 && color.r < color.g * 0.22 && color.b < color.g * 0.22;
             }
 
-            // Angels write equal channels above 1. A white hand sits at 1 and is left alone.
-            bool AsciiAngel(half3 color)
+            // The doorway from inside writes magenta: the real room goes there.
+            bool AsciiWindow(half3 color)
             {
-                return color.r > 1.15 && color.g > 1.15 && color.b > 1.15
-                    && abs(color.r - color.g) < 0.25 * color.g
-                    && abs(color.g - color.b) < 0.25 * color.g;
-            }
-
-            // Mirrors AsciiGlyph.DepthBrightness.
-            float DepthBrightness(float eyeDepth)
-            {
-                float d = max(eyeDepth, 0.0);
-                float falloff = 1.0 / (1.0 + d * d * 0.55);
-                return lerp(0.08, 1.0, falloff);
-            }
-
-            // Mirrors AsciiGlyph.CellScale / CellSize. Near tiles are 4x the far tiles, in screen pixels.
-            float2 CellPixels(float eyeDepth)
-            {
-                float scale = eyeDepth < 1.05 ? 4.0 : eyeDepth < 2.6 ? 2.0 : 1.0;
-                return float2(8.0, 12.0) * scale;
-            }
-
-            // Mirrors AsciiGlyph.GlyphPick. Depth chooses the band; form only slides inside it.
-            float GlyphPick(float form, float depthBrightness)
-            {
-                float depth = saturate(depthBrightness);
-                float low = lerp(0.0, 0.72, depth);
-                float high = lerp(0.12, 1.0, depth);
-                return lerp(low, high, saturate(form));
+                return color.r > 0.8 && color.b > 0.8 && color.g < 0.15;
             }
 
             float Eye(float2 uv)
             {
                 return LinearEyeDepth(SampleSceneDepth(uv), _ZBufferParams);
+            }
+
+            // The camera image along this pixel's view ray. With the screen off the AR camera
+            // stops moving, so the eye's own direction stands in for it.
+            float2 CameraUv(float2 uv, out bool inside)
+            {
+                float3 world = ComputeWorldSpacePosition(uv, 0.5, UNITY_MATRIX_I_VP);
+                float3 view = TransformWorldToView(world);
+                float2 dir = view.xy / max(-view.z, 1e-4);
+                float2 imageUv = (dir - _AsciiCameraFrustum.xy) / max(_AsciiCameraFrustum.zw, 1e-4) + 0.5;
+                inside = all(imageUv >= 0.0) && all(imageUv <= 1.0);
+                return imageUv;
+            }
+
+            half3 CameraColor(float2 uv)
+            {
+                bool inside;
+                float2 imageUv = CameraUv(uv, inside);
+                if (_AsciiCameraOn < 0.5 || !inside)
+                    return 0;
+                return SAMPLE_TEXTURE2D_LOD(_AsciiCameraImage, sampler_LinearClamp, imageUv, 0).rgb;
+            }
+
+            half PersonCover(float2 uv)
+            {
+                if (_AsciiPersonOn <= 0.0 || _AsciiCameraOn < 0.5)
+                    return 0;
+                bool inside;
+                float2 imageUv = CameraUv(uv, inside);
+                if (!inside)
+                    return 0;
+                half previous = SAMPLE_TEXTURE2D_LOD(_AsciiPersonMaskPrev, sampler_LinearClamp, imageUv, 0).r;
+                half current = SAMPLE_TEXTURE2D_LOD(_AsciiPersonMask, sampler_LinearClamp, imageUv, 0).r;
+                return smoothstep(0.3, 0.7, lerp(previous, current, saturate(_AsciiPersonBlend))) * _AsciiPersonOn;
             }
 
             // March toward the light in world space and reproject. A nearer surface along that
@@ -102,47 +123,29 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                     float rayEye = LinearEyeDepth(ndc.z, _ZBufferParams);
                     float sceneEye = LinearEyeDepth(SampleSceneDepth(ndc.xy), _ZBufferParams);
                     float gap = rayEye - sceneEye;
-                    if (gap > 0.07 && gap < 2.2)
-                        occ = 1.0;
+                    float hit = saturate((gap - 0.04) * 2.5) * saturate((2.2 - gap) * 1.5);
+                    occ = max(occ, hit);
                 }
                 return occ;
             }
 
-            half4 Frag(Varyings input) : SV_Target
+            half3 Room(float2 uv, float2 pixel, float2 size, out bool drawn)
             {
-                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
-
-                float2 uv = input.texcoord;
-                float rawDepth = SampleSceneDepth(uv);
-#if UNITY_REVERSED_Z
-                if (rawDepth <= 1e-5)
-#else
-                if (rawDepth >= 0.99999)
-#endif
-                    return half4(0.0, 0.0, 0.0, 1.0);
-
-                float2 size = max(_BlitTexture_TexelSize.zw, float2(1.0, 1.0));
-                float2 pixel = uv * size;
-
-                // Screen grid, not the surface's UVs, so every character faces the camera.
-                // One refinement so the whole tile shares the depth at its center.
-                float2 cell = CellPixels(Eye(uv));
+                // Screen grid, not the surface's UVs, so every character faces the camera. Near or
+                // far is decided per 12x20 block, so a big tile never splits into small pieces.
+                float2 block = floor(pixel / k_AsciiNearCell);
+                float2 cell = AsciiCellPixels(Eye(((block + 0.5) * k_AsciiNearCell) / size));
                 float2 cellCoord = floor(pixel / cell);
+                float2 inCell = pixel / cell - cellCoord;
                 float2 centerUv = ((cellCoord + 0.5) * cell) / size;
                 float depth = Eye(centerUv);
-                cell = CellPixels(depth);
-                cellCoord = floor(pixel / cell);
-                float2 inCell = pixel / cell - cellCoord;
-                centerUv = ((cellCoord + 0.5) * cell) / size;
-                depth = Eye(centerUv);
 
                 half4 src = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv, 0);
-                bool angel = AsciiAngel(src.rgb);
-                if (!angel && !AsciiGreen(src.rgb))
-                    return SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, uv, 0);
+                drawn = AsciiGreen(src.rgb);
+                if (!drawn)
+                    return 0;
 
-                // Angel signal is 1.5..4. Room green is 0.45..1. Both carry the light terminator.
-                float form = angel ? saturate((src.g - 1.5) / 2.5) : saturate((src.g - 0.45) / 0.55);
+                float form = saturate((src.g - 0.45) / 0.55);
 
                 float2 cellUv = cell / size;
                 float left = Eye(centerUv - float2(cellUv.x, 0.0));
@@ -154,27 +157,72 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 // Cast shadow from the ray, plus the dark side of the mesh. Size stays on depth.
                 float shade = max(CastShadow(centerUv), saturate(1.0 - form));
 
-                float depthBright = saturate(DepthBrightness(depth) + edge * 0.2);
-                float pick = GlyphPick(form, depthBright);
+                // Edges stay inside the fade, so a far silhouette doesn't glow out of the black.
+                float presence = AsciiDepthBrightness(depth);
+                float depthBright = saturate(presence + edge * 0.2 * presence);
+                float pick = AsciiGlyphPick(form, depthBright);
                 pick = saturate(pick * lerp(1.0, 0.62, shade) + edge * 0.12);
                 float bright = depthBright * lerp(1.0, 0.18, shade);
 
-                float count = max(_GlyphCount, 1.0);
-                float index = floor(pick * (count - 1.0) + 1e-4);
-                float2 atlasScale = float2(1.0 / count, 1.0);
-                float2 atlasUV = float2((index + inCell.x) / count, inCell.y);
-                float2 grid = pixel / cell;
-                half glyph = SAMPLE_TEXTURE2D_GRAD(_GlyphAtlas, sampler_GlyphAtlas, atlasUV,
-                    ddx(grid) * atlasScale, ddy(grid) * atlasScale).r;
+                float shown = 1.0;
+                if (_AsciiWave > 0.0)
+                {
+                    float reach = (1.0 - _AsciiWave) * 7.5;
+                    shown = 1.0 - smoothstep(reach - 0.6, reach + 0.2, depth);
+                }
 
-                half cover = saturate(glyph * lerp(0.65, 1.0, saturate(bright)));
-                // Room ink stays green and dims with distance. Angels stay white and above 1,
-                // brighter up close, so they still read as distance without leaving the phosphor.
-                half3 ink = angel
-                    ? half3(5.0, 5.0, 5.0) * lerp(0.55, 1.0, saturate(DepthBrightness(depth))) * lerp(0.6, 1.0, 1.0 - shade)
-                    : _Ink.rgb * bright;
-                half3 paper = angel ? half3(0.02, 0.02, 0.025) : _Paper.rgb;
-                return half4(lerp(paper, ink, cover), 1.0);
+                half glyph = AsciiGlyphInk(TEXTURE2D_ARGS(_GlyphAtlas, sampler_GlyphAtlas), _GlyphCount, pick, inCell, cell);
+                half cover = saturate(glyph * lerp(0.82, 1.0, saturate(bright))) * shown;
+                half3 ink = _Ink.rgb * bright;
+                half3 paper = _Paper.rgb * presence * shown;
+                return lerp(paper, ink, cover);
+            }
+
+            half4 Frag(Varyings input) : SV_Target
+            {
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+
+                float2 uv = input.texcoord;
+                // No scene depth here (nothing rendered): true black, not glyphs or passthrough.
+                float rawDepth = SampleSceneDepth(uv);
+#if UNITY_REVERSED_Z
+                if (rawDepth <= 1e-5)
+#else
+                if (rawDepth >= 0.99999)
+#endif
+                    return half4(0.0, 0.0, 0.0, 1.0);
+
+                float2 size = max(_BlitTexture_TexelSize.zw, float2(1.0, 1.0));
+                float2 pixel = uv * size;
+
+                float rawDepth = SampleSceneDepth(uv);
+#if UNITY_REVERSED_Z
+                bool empty = rawDepth <= 1e-5;
+#else
+                bool empty = rawDepth >= 0.99999;
+#endif
+
+                half3 here = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, uv, 0).rgb;
+                half3 color;
+                bool drawn = false;
+                // Nothing drawn here: true black, not the clear color.
+                if (empty)
+                    color = 0;
+                else if (AsciiWindow(here))
+                    color = CameraColor(uv);
+                else
+                {
+                    color = Room(uv, pixel, size, drawn);
+                    // Angels already drew their own glyphs; hands and UI pass straight through.
+                    if (!drawn)
+                        color = here;
+                }
+
+                // People in the real room show through, so nobody gets walked into.
+                half person = PersonCover(uv);
+                if (person > 0.0)
+                    color = lerp(color, CameraColor(uv), person);
+                return half4(color, 1.0);
             }
             ENDHLSL
         }

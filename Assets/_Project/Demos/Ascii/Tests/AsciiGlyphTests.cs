@@ -38,17 +38,21 @@ namespace CardboardXR.Demos.Ascii.Tests
         }
 
         [Test]
-        public void DepthBrightnessFallsOffAndStaysVisible()
+        public void DepthBrightnessFallsOffIntoBlack()
         {
             var touch = AsciiGlyph.DepthBrightness(0.4f);
             var step = AsciiGlyph.DepthBrightness(1.2f);
             var across = AsciiGlyph.DepthBrightness(3f);
-            var far = AsciiGlyph.DepthBrightness(6f);
+            var edge = AsciiGlyph.DepthBrightness(6.5f);
             Assert.Greater(touch, 0.9f);
             Assert.Greater(touch, step);
             Assert.Greater(step - across, 0.3f);
-            Assert.Greater(across, far);
-            Assert.Greater(far, 0.1f);
+            Assert.Greater(across, AsciiGlyph.DepthBrightness(5.5f));
+            Assert.Less(edge, 0.02f);
+            var here = AsciiGlyph.DepthBrightness(2f);
+            var beside = AsciiGlyph.DepthBrightness(2.5f);
+            Assert.Greater(here, beside);
+            Assert.Less(here - beside, 0.15f);
         }
 
         [Test]
@@ -64,13 +68,13 @@ namespace CardboardXR.Demos.Ascii.Tests
         [Test]
         public void CellSizeGrowsWhenCloseAndStaysNested()
         {
-            Assert.AreEqual(4, AsciiGlyph.CellScale(0.4f));
-            Assert.AreEqual(2, AsciiGlyph.CellScale(1.5f));
+            Assert.AreEqual(2, AsciiGlyph.CellScale(0.4f));
+            Assert.AreEqual(1, AsciiGlyph.CellScale(1.5f));
             Assert.AreEqual(1, AsciiGlyph.CellScale(4f));
             var near = AsciiGlyph.CellSize(0.4f);
             var far = AsciiGlyph.CellSize(4f);
-            Assert.AreEqual(new Vector2(32f, 48f), near);
-            Assert.AreEqual(new Vector2(8f, 12f), far);
+            Assert.AreEqual(new Vector2(12f, 20f), near);
+            Assert.AreEqual(new Vector2(6f, 10f), far);
             Assert.AreEqual(0f, near.x % far.x);
             Assert.AreEqual(0f, near.y % far.y);
         }

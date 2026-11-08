@@ -48,6 +48,8 @@ namespace ProjectBootstrap
             ascii.SetColor("_FurnitureColor", new Color(1f, 0.92f, 0f, 1f));
             ascii.SetFloat("_ForceFurniture", 0f);
             ascii.SetFloat("_Extrude", 0.01f);
+            ascii.SetTexture("_GlyphAtlas", atlas);
+            ascii.SetFloat("_GlyphCount", AsciiGlyph.Ramp.Length);
             EditorUtility.SetDirty(ascii);
 
             var terminalShader = AssetDatabase.LoadAssetAtPath<Shader>("Assets/_Project/Demos/Ascii/Shaders/AsciiTerminal.shader");

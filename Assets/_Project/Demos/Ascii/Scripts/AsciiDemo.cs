@@ -10,9 +10,20 @@ namespace CardboardXR.Demos.Ascii
     // Place a glyph gate on the floor. Outside: normal passthrough, and the doorway peeks at a
     // terminal rendering of the other side. Inside: passthrough off, the room is that same
     // screen-space terminal. Character size, density and brightness show distance. The room is
-    // green; weeping angels are HDR white. Logs [Ascii].
+    // green; weeping angels are gray stone with a soft edge. The camera keeps running, so the
+    // open doorway and any person in the room show the real camera image. Logs [Ascii].
     public class AsciiDemo : Demo
     {
+        const float k_DipAlpha = 0.75f;
+        const float k_DipSeconds = 0.12f;
+        const float k_RiseSeconds = 0.45f;
+        const float k_WaveSeconds = 1.1f;
+
+        static readonly int k_CameraImageId = Shader.PropertyToID("_AsciiCameraImage");
+        static readonly int k_CameraFrustumId = Shader.PropertyToID("_AsciiCameraFrustum");
+        static readonly int k_CameraOnId = Shader.PropertyToID("_AsciiCameraOn");
+        static readonly int k_WaveId = Shader.PropertyToID("_AsciiWave");
+
         [SerializeField] GameObject m_PortalPrefab;
         [SerializeField] Material m_AsciiMaterial;
         [SerializeField] GameObject m_AngelPrefab;
@@ -23,6 +34,10 @@ namespace CardboardXR.Demos.Ascii
         AsciiMeshes m_Meshes;
         AsciiAngels m_Angels;
         AsciiMathQuiz m_Quiz;
+        AsciiPeople m_People;
+        ScreenFade m_Fade;
+        Coroutine m_Crossing;
+        bool m_Capturing;
         RectTransform m_Panel;
         RectTransform m_DeathPanel;
         TMP_Text m_Hint;
@@ -69,6 +84,10 @@ namespace CardboardXR.Demos.Ascii
             m_Quiz.Configure(planes, core.Head, m_Angels.SpeedUp, OnQuizComplete);
             m_Quiz.WallSelected += OnQuizWallSelected;
 
+            m_People = gameObject.AddComponent<AsciiPeople>();
+            m_People.Configure(core.Passthrough);
+            m_Fade = Object.FindAnyObjectByType<ScreenFade>(FindObjectsInactive.Include);
+
             m_Audio = gameObject.AddComponent<AudioSource>();
             m_Audio.playOnAwake = false;
             m_Whoosh = Whoosh();
@@ -90,7 +109,14 @@ namespace CardboardXR.Demos.Ascii
                 Destroy(m_Quiz);
                 m_Quiz = null;
             }
+            StopCrossing();
             SetInsideWorld(false);
+            SetCapture(false);
+            if (m_People != null)
+            {
+                Destroy(m_People);
+                m_People = null;
+            }
             AsciiTerminal.Active = false;
             if (m_Surfaces != null)
             {
@@ -112,6 +138,7 @@ namespace CardboardXR.Demos.Ascii
                 m_Angels = null;
             }
             core.Boundary.HoldDetection = false;
+            core.Boundary.ShowMarks = true;
             if (m_Planes != null && m_PreviousDetection.HasValue)
                 m_Planes.requestedDetectionMode = m_PreviousDetection.Value;
             m_Planes = null;
@@ -139,7 +166,10 @@ namespace CardboardXR.Demos.Ascii
             m_Portal = portal;
             m_Portal.Crossed += OnCrossed;
             m_Core.Placer.ObjectPrefab = null;
+            // The X marks are the placement preview. Once the gate is up they draw over the glyphs.
+            m_Core.Boundary.ShowMarks = false;
             AsciiTerminal.Active = true;
+            SetCapture(true);
             m_Surfaces?.SetLive(true);
             var distance = Vector3.Distance(m_Core.Head.position, placed.transform.position);
             Debug.Log($"[Ascii] Gate opened {distance:F1} m away");
@@ -150,6 +180,46 @@ namespace CardboardXR.Demos.Ascii
         void OnCrossed(bool inside)
         {
             m_Audio.PlayOneShot(m_Whoosh, 0.7f);
+            StopCrossing();
+            m_Crossing = StartCoroutine(Cross(inside));
+        }
+
+        // Dip toward black, swap worlds while it's dark, then lift. Going in, the glyphs also
+        // spread outward from the head instead of the whole room appearing at once.
+        System.Collections.IEnumerator Cross(bool inside)
+        {
+            if (m_Fade != null)
+                yield return m_Fade.FadeTo(k_DipAlpha, k_DipSeconds);
+            Shader.SetGlobalFloat(k_WaveId, inside ? 1f : 0f);
+            ApplyCrossing(inside);
+            var dark = m_Fade != null ? m_Fade.Alpha : 0f;
+            var seconds = inside ? Mathf.Max(k_RiseSeconds, k_WaveSeconds) : k_RiseSeconds;
+            for (var t = 0f; t < seconds; t += Time.unscaledDeltaTime)
+            {
+                if (m_Fade != null)
+                    m_Fade.Alpha = Mathf.Lerp(dark, 0f, Mathf.SmoothStep(0f, 1f, t / k_RiseSeconds));
+                if (inside)
+                    Shader.SetGlobalFloat(k_WaveId, 1f - Mathf.SmoothStep(0f, 1f, t / k_WaveSeconds));
+                yield return null;
+            }
+            if (m_Fade != null)
+                m_Fade.Alpha = 0f;
+            Shader.SetGlobalFloat(k_WaveId, 0f);
+            m_Crossing = null;
+        }
+
+        void StopCrossing()
+        {
+            if (m_Crossing != null)
+                StopCoroutine(m_Crossing);
+            m_Crossing = null;
+            Shader.SetGlobalFloat(k_WaveId, 0f);
+            if (m_Fade != null && m_Fade.Alpha > 0f && m_Fade.Alpha <= k_DipAlpha)
+                m_Fade.Alpha = 0f;
+        }
+
+        void ApplyCrossing(bool inside)
+        {
             SetInsideWorld(inside);
             m_Surfaces?.SetDrawn(inside);
             m_Meshes?.SetActive(inside);
@@ -235,6 +305,7 @@ namespace CardboardXR.Demos.Ascii
             if (m_Core == null || inside == m_InsideWorld)
                 return;
             m_InsideWorld = inside;
+            m_People?.SetActive(inside);
             if (inside)
             {
                 m_HadPassthrough = m_Core.Passthrough.IsOn;
@@ -253,6 +324,33 @@ namespace CardboardXR.Demos.Ascii
             VirtualEnvironment.SetAllHidden(m_Core.Passthrough.IsOn);
         }
 
+        // While the gate is up the camera keeps drawing even with the passthrough screen off, for
+        // the doorway back and for people inside.
+        void SetCapture(bool on)
+        {
+            if (m_Core == null || on == m_Capturing)
+                return;
+            m_Capturing = on;
+            if (on)
+                m_Core.Passthrough.RetainCapture();
+            else
+                m_Core.Passthrough.ReleaseCapture();
+            if (!on)
+                Shader.SetGlobalFloat(k_CameraOnId, 0f);
+        }
+
+        void Update()
+        {
+            if (!m_Capturing)
+                return;
+            var image = m_Core.Passthrough.CameraImage;
+            Shader.SetGlobalFloat(k_CameraOnId, image != null ? 1f : 0f);
+            if (image == null)
+                return;
+            Shader.SetGlobalTexture(k_CameraImageId, image);
+            Shader.SetGlobalVector(k_CameraFrustumId, m_Core.Passthrough.ImageFrustum);
+        }
+
         void Move()
         {
             if (m_Portal == null || m_InsideWorld || m_Dead)
@@ -261,7 +359,10 @@ namespace CardboardXR.Demos.Ascii
             portal.Crossed -= OnCrossed;
             m_Portal = null;
             AsciiTerminal.Active = false;
+            m_Core.Boundary.ShowMarks = true;
+            StopCrossing();
             SetInsideWorld(false);
+            SetCapture(false);
             m_Surfaces?.SetLive(false);
             m_Meshes?.SetActive(false);
             m_Angels?.SetInside(false);

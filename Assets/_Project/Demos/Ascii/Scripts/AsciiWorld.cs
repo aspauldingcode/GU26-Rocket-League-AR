@@ -48,6 +48,7 @@ namespace CardboardXR.Demos.Ascii
         bool m_HasLastHead;
         MaterialPropertyBlock m_Block;
         Material m_FrameMaterial;
+        Material m_WindowMaterial;
         Coroutine m_Animating;
 
         public bool IsInside { get; private set; }
@@ -206,6 +207,8 @@ namespace CardboardXR.Demos.Ascii
         {
             if (m_FrameMaterial != null)
                 Destroy(m_FrameMaterial);
+            if (m_WindowMaterial != null)
+                Destroy(m_WindowMaterial);
         }
 
         void Casing(string name, Material material, Vector3 position, Vector3 size, Color color) =>
@@ -239,7 +242,19 @@ namespace CardboardXR.Demos.Ascii
         {
             m_OutsideMask = BuildOutsideMask();
             m_InsideMask = Quad("Inside Mask", m_World, new Vector3(0f, DoorHeight / 2f, 0f),
-                new Vector2(DoorWidth, DoorHeight), Quaternion.identity, m_Mask).gameObject;
+                new Vector2(DoorWidth, DoorHeight), Quaternion.identity, WindowMaterial()).gameObject;
+        }
+
+        // Passthrough is off inside, so the doorway can't just reveal it like PortalWorld's does.
+        // It draws a key color before the room; the terminal pass puts the camera image there.
+        Material WindowMaterial()
+        {
+            if (m_Ascii == null)
+                return m_Mask;
+            m_WindowMaterial = new Material(m_Ascii) { name = "Ascii Window" };
+            m_WindowMaterial.SetFloat("_Window", 1f);
+            m_WindowMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry - 10;
+            return m_WindowMaterial;
         }
 
         GameObject BuildOutsideMask()

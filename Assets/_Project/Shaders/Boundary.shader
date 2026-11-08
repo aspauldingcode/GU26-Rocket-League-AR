@@ -81,6 +81,8 @@ Shader "CardboardXR/Boundary"
             float _BoundaryScan;
             float4 _BoundaryWave;
             float4x4 _BoundaryWorldToSession;
+            // 0 hides the X marks, the scan fill and the placement spot. RoomBoundary sets it.
+            float _BoundaryMarks;
 
             // Surfaces less than this above the floor count as floor, in meters.
             static const float k_FloorBand = 0.1;
@@ -141,7 +143,7 @@ Shader "CardboardXR/Boundary"
 
                 float spot = smoothstep(0.0, 1.0, saturate(1.0 - distance(input.positionWS, _GazePoint.xyz) / _SpotRadius));
                 float highlight = _Highlight * spot;
-                float shown = max(max(scan, warning), highlight) * _Appear * smoothstep(0.0, 1.0, input.edge);
+                float shown = max(max(scan, warning), highlight) * _Appear * _BoundaryMarks * smoothstep(0.0, 1.0, input.edge);
                 float glow = crest * _BoundaryScan;
                 half3 color = lerp(_Color.rgb, _HighlightColor.rgb, highlight) + glow * 0.5;
                 float fill = lerp(_Fill, _HighlightFill, highlight) + glow * 0.08;

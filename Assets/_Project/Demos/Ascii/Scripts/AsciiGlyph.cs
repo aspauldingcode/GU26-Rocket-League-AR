@@ -25,30 +25,32 @@ namespace CardboardXR.Demos.Ascii
             Ramp[BrightnessToIndex(luminance01, Ramp.Length)];
 
         // Phosphor brightness from eye depth in meters. The terminal shader uses this same curve.
-        // Arm's length stays bright; a few meters back is clearly dimmer; the far wall stays visible.
+        // A smooth fall across the whole room: close stays bright, and the far edge is black.
         public static float DepthBrightness(float eyeDepthMeters)
         {
             var d = Mathf.Max(0f, eyeDepthMeters);
-            var falloff = 1f / (1f + d * d * 0.55f);
-            return Mathf.Lerp(0.08f, 1f, falloff);
+            return 1f - SmoothStep(0.4f, 6.5f, d);
         }
 
-        // Screen-pixel scale of one character. Nested powers of two so a near tile lines up with
-        // the far grid. The terminal shader uses the same steps. 4 is arm's length, 1 is across the room.
+        // HLSL smoothstep(edge0, edge1, x). Mathf.SmoothStep takes (from, to, t) and is a different curve.
+        static float SmoothStep(float edge0, float edge1, float x)
+        {
+            var t = Mathf.Clamp01((x - edge0) / (edge1 - edge0));
+            return t * t * (3f - 2f * t);
+        }
+
+        // Screen-pixel scale of one character. The room uses the small cell so the grid holds many
+        // symbols. Arm's length is twice that, and the two grids share edges. The shader matches.
         public static int CellScale(float eyeDepthMeters)
         {
             var d = Mathf.Max(0f, eyeDepthMeters);
-            if (d < 1.05f)
-                return 4;
-            if (d < 2.6f)
-                return 2;
-            return 1;
+            return d < 1.05f ? 2 : 1;
         }
 
         public static Vector2 CellSize(float eyeDepthMeters)
         {
             var scale = CellScale(eyeDepthMeters);
-            return new Vector2(8f * scale, 12f * scale);
+            return new Vector2(6f * scale, 10f * scale);
         }
 
         // Depth picks the glyph band. Surface lighting only moves inside that band, so a dark

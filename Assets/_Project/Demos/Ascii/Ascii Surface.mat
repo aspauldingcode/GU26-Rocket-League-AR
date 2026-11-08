@@ -22,11 +22,19 @@ Material:
   m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
-    m_TexEnvs: []
+    m_TexEnvs:
+    - _GlyphAtlas:
+        m_Texture: {fileID: 2800000, guid: 433d5a8d492242a5bbd189e4afc36acf, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
     - _Extrude: 0.01
+    - _Figure: 0
     - _ForceFurniture: 0
+    - _GlyphCount: 70
+    - _UseMeshNormal: 0
+    - _Volume: 0
     m_Colors:
     - _FurnitureColor: {r: 1, g: 0.92, b: 0, a: 1}
     - _RoomColor: {r: 0, g: 1, b: 0, a: 1}

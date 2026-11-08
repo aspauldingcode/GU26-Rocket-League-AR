@@ -24,6 +24,7 @@ namespace CardboardXR.Demos.Ascii
         Transform m_Head;
         Material m_Ascii;
         ARMeshManager m_Meshes;
+        Material m_AngelMaterial;
         readonly List<WeepingAngel> m_Angels = new();
         readonly MaterialPropertyBlock m_Block = new();
         NavMeshData m_NavMeshData;
@@ -89,21 +90,30 @@ namespace CardboardXR.Demos.Ascii
             m_NextBake = Time.unscaledTime + k_BakeInterval;
         }
 
-        // The statue is shaded with its own normals. The terminal draws it as HDR white glyphs,
-        // still sized and darkened by distance, and it casts a shadow on the green room.
+        // A material instance, not a property block: the figure flag has to be on the material
+        // or the statue stays stone-colored without glyphs. The glyphs are gray, with a soft halo.
+        Material AngelMaterial()
+        {
+            if (m_AngelMaterial != null || m_Ascii == null)
+                return m_AngelMaterial;
+            m_AngelMaterial = new Material(m_Ascii) { name = "Ascii Angel" };
+            m_AngelMaterial.SetFloat(k_Force, 0f);
+            m_AngelMaterial.SetFloat(k_Normal, 1f);
+            m_AngelMaterial.SetFloat(k_Volume, 0f);
+            m_AngelMaterial.SetFloat(k_Figure, 1f);
+            m_AngelMaterial.SetFloat("_GlyphCount", AsciiGlyph.Ramp.Length);
+            return m_AngelMaterial;
+        }
+
         void ApplyAscii(GameObject go)
         {
-            if (m_Ascii == null)
+            var material = AngelMaterial();
+            if (material == null)
                 return;
-            m_Block.Clear();
-            m_Block.SetFloat(k_Force, 0f);
-            m_Block.SetFloat(k_Normal, 1f);
-            m_Block.SetFloat(k_Volume, 0f);
-            m_Block.SetFloat(k_Figure, 1f);
             foreach (var renderer in go.GetComponentsInChildren<Renderer>(true))
             {
-                renderer.sharedMaterial = m_Ascii;
-                renderer.SetPropertyBlock(m_Block);
+                renderer.sharedMaterial = material;
+                renderer.SetPropertyBlock(null);
             }
         }
 
@@ -205,6 +215,10 @@ namespace CardboardXR.Demos.Ascii
                 }
             }
             m_Angels.Clear();
+            if (m_AngelMaterial == null)
+                return;
+            Destroy(m_AngelMaterial);
+            m_AngelMaterial = null;
         }
     }
 }

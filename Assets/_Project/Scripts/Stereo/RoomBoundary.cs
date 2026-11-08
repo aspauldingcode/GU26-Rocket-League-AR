@@ -34,6 +34,7 @@ namespace CardboardXR.Stereo
         static readonly int k_ScanId = Shader.PropertyToID("_BoundaryScan");
         static readonly int k_WaveId = Shader.PropertyToID("_BoundaryWave");
         static readonly int k_WorldToSessionId = Shader.PropertyToID("_BoundaryWorldToSession");
+        static readonly int k_MarksId = Shader.PropertyToID("_BoundaryMarks");
         // A scan shows surfaces in a wave spreading out from where it began at this speed, in meters a
         // second of tracking (like an odradek scan's), and they fade away over k_HideSeconds when it
         // ends rather than vanishing.
@@ -128,8 +129,13 @@ namespace CardboardXR.Stereo
         // (Ascii) keep finding tables, seats and walls as the user looks around.
         public bool HoldDetection { get; set; }
 
+        // The X-mark preview. Off while a demo is being played, so the scan grid doesn't draw over
+        // the world. Detection is unchanged.
+        public bool ShowMarks { get; set; } = true;
+
         void OnEnable()
         {
+            Shader.SetGlobalFloat(k_MarksId, 1f);
             // The "boundaryCm" launch option turns the warning on, at that distance.
             var boundaryCm = LaunchOptions.GetInt("boundaryCm", 0);
             if (boundaryCm > 0)
@@ -165,6 +171,7 @@ namespace CardboardXR.Stereo
                 if (m_ScanButton.Selected != m_Scanning)
                     m_ScanButton.Selected = m_Scanning;
             }
+            Shader.SetGlobalFloat(k_MarksId, ShowMarks ? 1f : 0f);
             if (!sixDof)
             {
                 m_ScanShown = 0f;
