@@ -76,6 +76,26 @@
   function frameTopic(code) { return TOPIC_PREFIX + code + "/f"; }
   function helloTopic(code) { return TOPIC_PREFIX + code + "/h"; }
 
+  // Presence on the hello topic, retained: "1:{token}:{ts}" while a phone holds the room
+  // (republished as a heartbeat), "0:{token}:{ts}" when it lets go. The token keeps one
+  // phone's goodbye from ending another phone's stream, and lets a second phone that
+  // scanned the same QR yield instead of interleaving its frames into the first one's.
+  var HELLO_STALE_MS = 6000;
+
+  function parseHello(payload) {
+    // Payloads arrive as string, Uint8Array, or ArrayBuffer depending on the browser
+    // (WebKit gives ArrayBuffer, which has no .length — that once read every hello as empty).
+    var text = "";
+    try {
+      if (typeof payload === "string") text = payload;
+      else if (payload instanceof ArrayBuffer) text = new TextDecoder().decode(new Uint8Array(payload));
+      else if (payload && payload.length) text = new TextDecoder().decode(payload);
+    } catch (e) { return null; }
+    if (!text) return { on: false, token: "", ts: 0 };
+    var parts = text.split(":");
+    return { on: parts[0] === "1", token: parts[1] || "", ts: parseInt(parts[2] || "0", 10) || 0 };
+  }
+
   window.__castLogic = {
     newRoomCode: newRoomCode,
     displayAspect: displayAspect,
@@ -212,6 +232,8 @@
     var live = false;
     var phoneHere = false;
     var lastFrameAt = 0;
+    var helloAt = 0;
+    var currentToken = "";
     var ctx = viewEl && viewEl.getContext ? viewEl.getContext("2d") : null;
     var img = new Image();
     var lastUrl = null;
@@ -221,6 +243,8 @@
     function waiting() {
       live = false;
       phoneHere = false;
+      currentToken = "";
+      helloAt = 0;
       if (document.body) document.body.classList.remove("live");
       show(stageEl, false);
       showPairingQr(code, aspect);
@@ -271,11 +295,18 @@
 
     function onMessage(topic, payload) {
       if (topic === helloTopic(code)) {
-        if (payload && payload.length > 0) {
+        var hello = parseHello(payload);
+        if (!hello) return;
+        if (hello.on) {
+          currentToken = hello.token;
           phoneHere = true;
+          if (!helloAt) helloAt = Date.now();
           goLive();
+        } else if (hello.token && hello.token !== currentToken) {
+          // A previous phone's WebView finishing its close late: not this stream's goodbye.
+          log("ignored stale goodbye");
         } else if (phoneHere) {
-          // The phone said goodbye (Share stopped): back to the QR.
+          // The phone holding the room said goodbye (Share stopped): back to the QR.
           waiting();
         }
         return;
@@ -302,7 +333,13 @@
       if (stopped) return;
       window.__castDiag = { frames: window.__castFrames || 0, live: live, phone: phoneHere };
       if (!live) return;
-      var quiet = Date.now() - lastFrameAt;
+      // Silence since the last frame (or the hello, before the first frame): a phone that
+      // died without saying goodbye eventually hands the page back to the QR.
+      var quiet = Date.now() - Math.max(lastFrameAt, helloAt);
+      if (quiet > 20000) {
+        waiting();
+        return;
+      }
       if (statusEl) {
         if (quiet > STALL_MS && phoneHere) setStatus("Waiting…");
         else if (statusEl.textContent !== "Live") setStatus("Live");
@@ -327,6 +364,8 @@
       leave: function () {
         stopped = true;
         if (relay) relay.end();
+        // "New QR": forget this tab's room so the reload mints a fresh one.
+        try { sessionStorage.removeItem("gurlar-room"); } catch (e) {}
         location.href = location.pathname + "?t=" + Date.now();
       },
     };
@@ -353,29 +392,98 @@
     var sent = 0;
     var dropped = 0;
 
-    function sayHello(client) {
-      // Retained: a website opened (or refreshed) mid-share sees the phone at once.
-      client.publish(helloTopic(code), "1", { qos: 0, retain: true });
+    // One phone holds the room at a time. A second phone that scanned the same QR yields
+    // (its frames would otherwise interleave into the presenter's stream) and takes over
+    // when the holder says goodbye or its heartbeat goes stale.
+    var token = randomSuffix();
+    var claimed = false;
+    var claimTs = 0;
+    var yielding = false;
+    var otherToken = "";
+    var otherHelloAt = 0;
+    var heartbeatTimer = null;
+    var claimTimer = null;
+
+    function publishHello(on) {
+      var client = relay && relay.client;
+      if (!client || !client.connected) return;
+      client.publish(helloTopic(code), (on ? "1:" : "0:") + token + ":" + Date.now(),
+        { qos: 0, retain: true });
+    }
+
+    function tryClaim() {
+      if (stopped || claimed) return;
+      var otherFresh = otherToken && Date.now() - otherHelloAt < HELLO_STALE_MS;
+      if (otherFresh) {
+        if (!yielding) {
+          yielding = true;
+          setStatus("Another phone is sharing");
+        }
+        return;
+      }
+      yielding = false;
+      claimed = true;
+      claimTs = Date.now();
+      publishHello(true);
       setStatus("streaming to room " + code);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      heartbeatTimer = setInterval(function () { publishHello(true); }, 3000);
+    }
+
+    function onHello(topic, payload) {
+      var hello = parseHello(payload);
+      if (!hello || hello.token === token) return;
+      if (hello.on) {
+        otherToken = hello.token;
+        otherHelloAt = hello.ts || Date.now();
+        // Both claimed in the same moment: the lower token keeps the room, the other steps
+        // down. (Timestamps can't arbitrate: the heartbeat keeps refreshing them.)
+        if (claimed && hello.token < token) {
+          claimed = false;
+          yielding = true;
+          if (heartbeatTimer) clearInterval(heartbeatTimer);
+          setStatus("Another phone is sharing");
+        }
+      } else if (otherToken === hello.token) {
+        otherToken = "";
+        otherHelloAt = 0;
+        if (!claimed) tryClaim();
+      }
     }
 
     relay = connectRelay(mqtt, "gurlar-host", function (client) {
-      sayHello(client);
-    }, null);
+      client.subscribe(helloTopic(code), { qos: 0 });
+      if (claimed) {
+        publishHello(true);
+        return;
+      }
+      // Give a retained hello from the phone already presenting time to arrive.
+      if (claimTimer) clearTimeout(claimTimer);
+      claimTimer = setTimeout(tryClaim, 1200);
+    }, onHello);
+
+    // While yielding, keep checking whether the holder has gone away.
+    var yieldTimer = setInterval(function () {
+      window.__castState = { claimed: claimed, yielding: yielding, other: otherToken, sent: sent, dropped: dropped };
+      if (!stopped && !claimed) tryClaim();
+    }, 1500);
 
     function destroy() {
       stopped = true;
+      if (claimTimer) clearTimeout(claimTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (yieldTimer) clearInterval(yieldTimer);
       try {
-        if (relay && relay.client && relay.client.connected)
-          relay.client.publish(helloTopic(code), "", { qos: 0, retain: true });
+        if (claimed) publishHello(false);
       } catch (e) {}
+      claimed = false;
       if (relay) relay.end();
     }
 
     window.__cast = {
       pushFrame: function (dataUrl) {
         var client = relay && relay.client;
-        if (stopped || !dataUrl || !client || !client.connected) {
+        if (stopped || !claimed || !dataUrl || !client || !client.connected) {
           dropped++;
           return;
         }
@@ -409,8 +517,14 @@
       return;
     }
 
-    // Every load gets a brand-new room, so a stale tab never shadows a live one.
-    room = newRoomCode();
+    // The room survives a refresh of this tab (sessionStorage), so an accidental reload —
+    // or a crash — reconnects to the phone still streaming instead of orphaning it behind a
+    // new QR. A new tab, or "New QR", mints a fresh room.
+    if (!room) {
+      try { room = sessionStorage.getItem("gurlar-room") || ""; } catch (e) {}
+    }
+    if (!room) room = newRoomCode();
+    try { sessionStorage.setItem("gurlar-room", room); } catch (e) {}
     history.replaceState({}, "", "?room=" + encodeURIComponent(room));
     var aspect = displayAspect(window.screen && screen.width, window.screen && screen.height);
     showPairingQr(room, aspect);
