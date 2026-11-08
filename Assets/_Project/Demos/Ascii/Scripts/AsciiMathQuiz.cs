@@ -134,7 +134,7 @@ namespace CardboardXR.Demos.Ascii
                 return;
             var now = Time.unscaledTime;
             m_Rules.Tick(now);
-            m_Angels.SetHeld(m_Rules.AngelsHeld);
+            m_Angels.SetHeld(m_Rules.AngelsHeld(now));
             UpdateCountdowns(now);
             var stone = m_Rules.State == AsciiQuizState.Dead ? 1f : 0f;
             if (m_Stone != stone)
@@ -306,8 +306,11 @@ namespace CardboardXR.Demos.Ascii
                 case AsciiQuizState.Answering:
                     m_Count.text = remaining.ToString();
                     m_Count.color = remaining <= 5 ? M3Theme.Error : M3Theme.Primary;
-                    m_Status.text = "Turn around to answer. Pinch in the air to write notes.";
-                    m_AnswersTimer.text = $"{remaining} s";
+                    var grace = Mathf.CeilToInt(m_Rules.GraceRemaining(now));
+                    m_Status.text = grace > 0
+                        ? $"Turn around and read the choices. The angel wakes in {grace}."
+                        : "Turn around to answer. Pinch in the air to write notes.";
+                    m_AnswersTimer.text = grace > 0 ? $"{remaining} s · angel frozen {grace}" : $"{remaining} s";
                     m_AnswersTimer.color = remaining <= 5 ? M3Theme.Error : M3Theme.OnSurface;
                     break;
             }
@@ -398,7 +401,8 @@ namespace CardboardXR.Demos.Ascii
             M3.Text("Rules", m_Briefing,
                 "• Answer 5 multiple-choice math questions.\n" +
                 "• You get 10 s to read each one. The angel is frozen while you read.\n" +
-                "• Then 30 s to answer. The answers appear behind you, away from the angel.\n" +
+                "• Then 30 s to answer. The answers appear behind you, away from the angel,\n" +
+                "  and it stays frozen for the first 5 s so you can read them.\n" +
                 "• Look at the angel to freeze it. Turn your back and it creeps closer.\n" +
                 "• Pinch in the air to write red notes while you work it out.\n" +
                 "• 3 wrong answers (running out of time counts) and you turn to stone.\n" +
@@ -444,7 +448,7 @@ namespace CardboardXR.Demos.Ascii
             m_AnswersHeader = M3.Text("Header", m_Answers, "", M3Theme.Type.TitleMedium, new Vector2(0f, 165f),
                 new Vector2(620f, 32f), M3Theme.OnSurfaceVariant);
             m_AnswersTimer = Big(M3.Text("Timer", m_Answers, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, 118f),
-                new Vector2(200f, 48f)), 36f);
+                new Vector2(620f, 48f)), 36f);
             m_Choices = new M3Button[4];
             const float width = 300f;
             for (var i = 0; i < m_Choices.Length; i++)

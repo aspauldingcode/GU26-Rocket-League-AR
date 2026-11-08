@@ -38,6 +38,8 @@ namespace CardboardXR.Demos.Ascii
         public const int k_MaxMistakes = 3;
         public const float k_ReadSeconds = 10f;
         public const float k_AnswerSeconds = 30f;
+        // The first seconds of the answer window, while the angels stay held so the choices can be read.
+        public const float k_GraceSeconds = 5f;
         public const float k_FeedbackSeconds = 1.6f;
 
         public AsciiQuizState State { get; private set; } = AsciiQuizState.Idle;
@@ -52,8 +54,17 @@ namespace CardboardXR.Demos.Ascii
         // From, to.
         public event Action<AsciiQuizState, AsciiQuizState> Changed;
 
-        // Angels only move while the player answers, or runs for the portal.
-        public bool AngelsHeld => State != AsciiQuizState.Answering && State != AsciiQuizState.Escape;
+        // Angels only move once the player has had time to read the choices, or runs for the portal.
+        public bool AngelsHeld(float now) => State switch
+        {
+            AsciiQuizState.Answering => GraceRemaining(now) > 0f,
+            AsciiQuizState.Escape => false,
+            _ => true,
+        };
+
+        public float GraceRemaining(float now) =>
+            State == AsciiQuizState.Answering ? Math.Max(0f, k_GraceSeconds - (now - StateStarted)) : 0f;
+
         public bool CanWrite => State == AsciiQuizState.Reading || State == AsciiQuizState.Answering;
         public bool Playing => State is AsciiQuizState.Reading or AsciiQuizState.Answering or AsciiQuizState.Feedback or AsciiQuizState.Escape;
 

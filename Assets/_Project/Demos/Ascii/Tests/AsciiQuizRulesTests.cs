@@ -44,12 +44,28 @@ namespace CardboardXR.Demos.Ascii.Tests
         public void AngelsAreHeldWhileReadingAndBetweenQuestions()
         {
             var rules = Started(out var now);
-            Assert.IsTrue(rules.AngelsHeld);
+            Assert.IsTrue(rules.AngelsHeld(now));
             now += AsciiQuizRules.k_ReadSeconds;
             rules.Tick(now);
-            Assert.IsFalse(rules.AngelsHeld);
+            now += AsciiQuizRules.k_GraceSeconds + k_Step;
+            Assert.IsFalse(rules.AngelsHeld(now));
             rules.Answer(true, now);
-            Assert.IsTrue(rules.AngelsHeld);
+            Assert.IsTrue(rules.AngelsHeld(now));
+        }
+
+        [Test]
+        public void AngelsStayHeldWhileTheChoicesAreRead()
+        {
+            var rules = Started(out var now);
+            now += AsciiQuizRules.k_ReadSeconds + k_Step;
+            rules.Tick(now);
+            Assert.AreEqual(AsciiQuizState.Answering, rules.State);
+            Assert.IsTrue(rules.AngelsHeld(now));
+            Assert.IsTrue(rules.AngelsHeld(now + AsciiQuizRules.k_GraceSeconds - 0.1f));
+            Assert.IsFalse(rules.AngelsHeld(now + AsciiQuizRules.k_GraceSeconds + k_Step));
+            Assert.AreEqual(0f, rules.GraceRemaining(now + AsciiQuizRules.k_GraceSeconds + k_Step));
+            // Answering during the grace period still counts.
+            Assert.IsTrue(rules.Answer(true, now + 1f));
         }
 
         [Test]
@@ -60,7 +76,7 @@ namespace CardboardXR.Demos.Ascii.Tests
                 ReadAndAnswer(rules, ref now, true);
             Assert.AreEqual(AsciiQuizState.Escape, rules.State);
             Assert.AreEqual(5, rules.Correct);
-            Assert.IsFalse(rules.AngelsHeld);
+            Assert.IsFalse(rules.AngelsHeld(now));
             Assert.IsTrue(rules.Exited(now));
             Assert.AreEqual(AsciiQuizState.Won, rules.State);
         }
