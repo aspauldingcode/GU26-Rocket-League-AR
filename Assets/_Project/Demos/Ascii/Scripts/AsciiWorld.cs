@@ -17,6 +17,22 @@ namespace CardboardXR.Demos.Ascii
         const float k_BoxDepth = 29f;
         const float k_RiseSeconds = 1.5f;
         const float k_SinkSeconds = 1.2f;
+
+        public int mathProblemIndex = 0;
+        public String[] mathProblems = new String[] {
+            "2 + 2 = ?",
+            "3 * 3 = ?",
+            "5 - 2 = ?",
+            "4 / 2 = ?"
+        };
+
+        public String CurrentMathProblem => mathProblems[mathProblemIndex];
+
+        public void NextMathProblem()
+        {
+            mathProblemIndex = (mathProblemIndex + 1) % mathProblems.Length;
+        }
+
         static readonly int k_BaseColor = Shader.PropertyToID("_BaseColor");
 
         [SerializeField] Material m_Glow;
@@ -35,6 +51,7 @@ namespace CardboardXR.Demos.Ascii
         Coroutine m_Animating;
 
         public bool IsInside { get; private set; }
+        public bool ReturnUnlocked { get; private set; }
         public event Action<bool> Crossed;
 
         void Start()
@@ -100,7 +117,7 @@ namespace CardboardXR.Demos.Ascii
                 var crossing = AsciiCrossing.Crossing(m_LastHead, head, DoorWidth / 2f, DoorHeight);
                 if (crossing > 0 && !IsInside)
                     SetInside(true, announce: true);
-                else if (crossing < 0 && IsInside)
+                else if (crossing < 0 && IsInside && ReturnUnlocked)
                     SetInside(false, announce: true);
             }
             m_LastHead = head;
@@ -113,11 +130,21 @@ namespace CardboardXR.Demos.Ascii
             if (m_Peek != null)
                 m_Peek.SetActive(!inside);
             m_OutsideMask.SetActive(!inside);
-            m_InsideMask.SetActive(inside);
+            m_Frame.gameObject.SetActive(!inside || ReturnUnlocked);
+            m_InsideMask.SetActive(inside && ReturnUnlocked);
             if (!announce)
                 return;
             Debug.Log(inside ? "[Ascii] Stepped through into the ASCII dimension" : "[Ascii] Stepped back out into the room");
             Crossed?.Invoke(inside);
+        }
+
+        public void UnlockReturnPortal()
+        {
+            ReturnUnlocked = true;
+            if (!IsInside)
+                return;
+            m_Frame.gameObject.SetActive(true);
+            m_InsideMask.SetActive(true);
         }
 
         // A real casing: jambs, lintel, and sill. The imported frame mesh was a thin CAD profile

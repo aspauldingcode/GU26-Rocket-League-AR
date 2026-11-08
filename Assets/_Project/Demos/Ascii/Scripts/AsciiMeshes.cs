@@ -19,6 +19,8 @@ namespace CardboardXR.Demos.Ascii
         MeshFilter m_PrefabFilter;
         readonly MaterialPropertyBlock m_Block = new();
 
+        public ARMeshManager MeshManager => m_Meshes;
+
         public void Configure(Material asciiMaterial, Transform origin)
         {
             m_Material = asciiMaterial;

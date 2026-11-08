@@ -1,3 +1,5 @@
+using System;
+using UnityEngine.AI;
 using UnityEngine;
 
 namespace CardboardXR.Demos.Ascii
@@ -9,7 +11,7 @@ namespace CardboardXR.Demos.Ascii
     public class WeepingAngel : MonoBehaviour
     {
         const float k_Reach = 0.55f;
-        const float k_FloorLift = 0.02f;
+        const float k_FreezeSeconds = 5f;
 
         [SerializeField] float m_Speed = 0.35f;
         [SerializeField] float m_SeeDegrees = 28f;
@@ -17,9 +19,13 @@ namespace CardboardXR.Demos.Ascii
         [SerializeField] float m_BodyHeight = 1.8f;
 
         Transform m_Head;
+        NavMeshAgent m_Agent;
         bool m_Seen;
         bool m_LoggedFreeze;
         bool m_Reached;
+        float m_FreezeUntil;
+        float m_NextDestination;
+        public event Action Caught;
 
         public void Configure(Transform head, float speed)
         {
@@ -28,7 +34,36 @@ namespace CardboardXR.Demos.Ascii
             m_Seen = false;
             m_LoggedFreeze = false;
             m_Reached = false;
+            m_FreezeUntil = 0f;
+            m_Agent = GetComponent<NavMeshAgent>();
+            if (m_Agent == null)
+                m_Agent = gameObject.AddComponent<NavMeshAgent>();
+            m_Agent.enabled = false;
+            m_Agent.speed = m_Speed;
+            m_Agent.stoppingDistance = k_Reach;
+            m_Agent.height = m_BodyHeight;
+            m_Agent.radius = m_BodyRadius;
+            m_Agent.baseOffset = 0f;
+            m_Agent.updateRotation = false;
+            m_Agent.updateUpAxis = false;
             enabled = head != null;
+        }
+
+        public void SpeedUp()
+        {
+            m_Speed = Mathf.Min(m_Speed * 1.3f + 0.1f, 3f);
+            if (m_Agent != null)
+                m_Agent.speed = m_Speed;
+        }
+
+        public void RefreshNavigation()
+        {
+            if (m_Agent == null || m_Agent.enabled || !NavMesh.SamplePosition(transform.position, out var hit, 0.6f, NavMesh.AllAreas))
+                return;
+            transform.position = hit.position;
+            m_Agent.enabled = true;
+            m_Agent.Warp(hit.position);
+            SetDestination();
         }
 
         void Update()
@@ -37,20 +72,18 @@ namespace CardboardXR.Demos.Ascii
                 return;
 
             var seen = IsSeen();
-            if (seen != m_Seen)
+            if (seen && !m_Seen)
             {
-                m_Seen = seen;
-                if (seen && !m_LoggedFreeze)
+                m_FreezeUntil = Time.unscaledTime + k_FreezeSeconds;
+                if (!m_LoggedFreeze)
                 {
                     m_LoggedFreeze = true;
-                    Debug.Log("[Ascii] An angel froze under your gaze");
+                    Debug.Log("[Ascii] Angel frozen for five seconds");
                 }
             }
+            m_Seen = seen;
 
             FaceHead();
-            if (m_Seen)
-                return;
-
             var flat = m_Head.position - transform.position;
             flat.y = 0f;
             var distance = flat.magnitude;
@@ -60,15 +93,44 @@ namespace CardboardXR.Demos.Ascii
                 {
                     m_Reached = true;
                     Debug.Log("[Ascii] An angel reached you");
+                    Caught?.Invoke();
                 }
                 return;
             }
 
+            var frozen = m_Seen || Time.unscaledTime < m_FreezeUntil;
+            if (m_Agent != null && m_Agent.enabled && m_Agent.isOnNavMesh)
+            {
+                m_Agent.isStopped = frozen;
+                if (frozen)
+                    return;
+                if (Time.unscaledTime >= m_NextDestination)
+                {
+                    SetDestination();
+                    m_NextDestination = Time.unscaledTime + 0.25f;
+                }
+                return;
+            }
+            if (frozen)
+                return;
+
             var step = Mathf.Min(m_Speed * Time.deltaTime, distance - k_Reach);
             transform.position += flat.normalized * step;
-            var p = transform.position;
-            p.y = m_Head.position.y - 1.55f + k_FloorLift;
-            transform.position = p;
+            if (m_Agent == null || !m_Agent.enabled)
+            {
+                var p = transform.position;
+                p.y = m_Head.position.y - 1.55f;
+                transform.position = p;
+            }
+        }
+
+        void SetDestination()
+        {
+            if (m_Agent == null || !m_Agent.enabled || !m_Agent.isOnNavMesh)
+                return;
+            var destination = m_Head.position;
+            destination.y = m_Agent.nextPosition.y;
+            m_Agent.SetDestination(destination);
         }
 
         void FaceHead()
