@@ -254,7 +254,7 @@
       if (document.body) document.body.classList.remove("live");
       show(stageEl, false);
       showPairingQr(code, aspect);
-      setStatus(reason || "open Share on the phone and look at this QR — the view starts by itself");
+      setStatus(reason || "Scan QR");
     }
 
     function goLive() {
@@ -264,7 +264,7 @@
       show(pairEl, false);
       show(stageEl, true);
       if (document.body) document.body.classList.add("live");
-      setStatus("live — mono AR view (click for full screen)");
+      setStatus("Live");
     }
 
     function draw(base64) {
@@ -311,14 +311,14 @@
       conn = c;
       assembler = new FrameAssembler();
       lastFrameAt = 0;
-      setStatus("phone connected — starting the view…");
+      setStatus("Connecting…");
       c.on("data", function (data) {
         if (conn === c) onData(data);
       });
       c.on("close", function () {
         if (conn !== c || stopped) return;
         conn = null;
-        setStatus("phone disconnected — waiting for it to come back");
+        setStatus("Waiting…");
       });
       c.on("error", function () {
         if (conn !== c || stopped) return;
@@ -328,7 +328,7 @@
 
     function schedulePeer(reason) {
       if (stopped) return;
-      setStatus(reason || "reconnecting…");
+      setStatus(reason || "Reconnect…");
       clearTimeout(timer);
       timer = setTimeout(connect, delay);
       delay = nextRetryMs(delay);
@@ -379,9 +379,9 @@
     setInterval(function () {
       if (!live || stopped) return;
       var quiet = Date.now() - lastFrameAt;
-      if (quiet > LOST_MS && !conn) waiting("the phone stopped sharing — scan again to resume");
-      else if (quiet > STALL_MS) setStatus("waiting for the phone…");
-      else if (statusEl && statusEl.textContent.indexOf("live") !== 0) setStatus("live — mono AR view (click for full screen)");
+      if (quiet > LOST_MS && !conn) waiting("Scan QR");
+      else if (quiet > STALL_MS) setStatus("Waiting…");
+      else if (statusEl && statusEl.textContent !== "Live") setStatus("Live");
     }, 1000);
 
     if (stageEl) {
@@ -589,12 +589,13 @@
     history.replaceState({}, "", "?room=" + encodeURIComponent(room));
     var aspect = displayAspect(window.screen && screen.width, window.screen && screen.height);
     showPairingQr(room, aspect);
-    setStatus("open Share on the phone and look at this QR — the view starts by itself");
+    setStatus("Scan QR");
 
     loadPeerJs()
       .then(function (Peer) { startViewer(Peer); })
       .catch(function (err) {
-        setStatus((err && err.message ? err.message : String(err)) + " — reload to retry");
+        setStatus("Reload");
+        log(err && err.message ? err.message : String(err));
       });
   }
 
