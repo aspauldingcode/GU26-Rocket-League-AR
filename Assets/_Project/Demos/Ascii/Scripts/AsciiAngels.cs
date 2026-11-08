@@ -5,14 +5,12 @@ using UnityEngine;
 
 namespace CardboardXR.Demos.Ascii
 {
-    // Spawns weeping angels around the head when the player steps into the ASCII world, and clears
-    // them on the way back out. They start far away and only close the gap while unseen. Logs
-    // [Ascii].
+    // The weeping angel the math game sets on the player: spawned where the game says, at the speed
+    // it says, held still while a question is read, and cleared on the way back out. It only closes
+    // the gap while unseen. Logs [Ascii].
     public class AsciiAngels : MonoBehaviour
     {
         const int k_Count = 1;
-        const float k_SpawnDistance = 9f;
-        const float k_Speed = 0.3f;
         const float k_BakeInterval = 8f;
 
         static readonly int k_Force = Shader.PropertyToID("_ForceFurniture");
@@ -32,6 +30,7 @@ namespace CardboardXR.Demos.Ascii
         AsyncOperation m_NavMeshUpdate;
         float m_NextBake;
         bool m_Inside;
+        bool m_Held;
 
         public event System.Action Caught;
         public bool HasAngel => m_Angels.Count > 0;
@@ -117,39 +116,44 @@ namespace CardboardXR.Demos.Ascii
             }
         }
 
+        // Inside, the room's mesh is baked for the angels to walk on. Outside, they're all gone.
         public void SetInside(bool inside)
         {
+            m_Inside = inside;
             if (inside)
-                SetInside(true, m_Head != null ? m_Head.position - m_Head.forward * k_SpawnDistance : Vector3.zero);
-            else
-            {
-                m_Inside = false;
-                Clear();
-                ClearNavigation();
-            }
-        }
-
-        public void SetInside(bool inside, Vector3 spawnPosition)
-        {
-            if (!inside)
-            {
-                SetInside(false);
                 return;
-            }
-            m_Inside = true;
-            Spawn(spawnPosition);
+            Clear();
+            ClearNavigation();
         }
 
-        public void SpeedUp()
+        // Holds every angel still, seen or not (see WeepingAngel.Held), including ones spawned later.
+        public void SetHeld(bool held)
         {
+            m_Held = held;
             foreach (var angel in m_Angels)
                 if (angel != null)
-                    angel.SpeedUp();
+                    angel.Held = held;
         }
+
+        public bool TryGetAngel(out Vector3 position)
+        {
+            foreach (var angel in m_Angels)
+            {
+                if (angel == null)
+                    continue;
+                position = angel.transform.position;
+                return true;
+            }
+            position = default;
+            return false;
+        }
+
+        public void Despawn() => Clear();
 
         void OnDestroy() => Clear();
 
-        void Spawn(Vector3 spawnPosition)
+        // Replaces any angel with one at spawnPosition walking at speed (m/s) while unseen.
+        public void Spawn(Vector3 spawnPosition, float speed)
         {
             Clear();
             if (m_Prefab == null || m_Head == null)
@@ -168,14 +172,16 @@ namespace CardboardXR.Demos.Ascii
                 var angel = go.GetComponent<WeepingAngel>();
                 if (angel == null)
                     angel = go.AddComponent<WeepingAngel>();
-                angel.Configure(m_Head, k_Speed);
+                angel.Configure(m_Head, speed);
+                angel.Held = m_Held;
                 angel.Caught += OnCaught;
                 m_Angels.Add(angel);
             }
             if (m_NavMeshData != null)
                 foreach (var angel in m_Angels)
                     angel.RefreshNavigation();
-            Debug.Log("[Ascii] One weeping angel spawned opposite the quiz wall");
+            var distance = Vector3.ProjectOnPlane(spawnPosition - m_Head.position, Vector3.up).magnitude;
+            Debug.Log($"[Ascii] Weeping angel spawned {distance:F1} m away, {speed:F2} m/s while unseen");
         }
 
         void OnCaught() => Caught?.Invoke();

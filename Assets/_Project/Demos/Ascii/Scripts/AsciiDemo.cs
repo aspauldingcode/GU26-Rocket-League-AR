@@ -1,3 +1,4 @@
+using CardboardXR.Hands;
 using CardboardXR.Stereo;
 using CardboardXR.UI;
 using TMPro;
@@ -11,9 +12,17 @@ namespace CardboardXR.Demos.Ascii
     // terminal rendering of the other side. Inside: passthrough off, the room is that same
     // screen-space terminal. Character size, density and brightness show distance. The room is
     // green; weeping angels are gray stone with a soft edge. The camera keeps running, so the
-    // open doorway shows the real room and people in it are drawn as light-blue glyphs. Logs [Ascii].
-    public class AsciiDemo : Demo
+    // open doorway shows the real room and people in it are drawn as light-blue glyphs. The gate
+    // closes behind the player and the math game (AsciiMathQuiz) starts; it reopens once the five
+    // questions are done, and walking out through it wins. Pinches in the air during a question
+    // write red notes (AsciiWhiteboard). Logs [Ascii].
+    public class AsciiDemo : Demo, IPinchHandler
     {
+        // Where the angel can stand ahead of the player: before the first wall that way, but never
+        // nearer or farther than these.
+        const float k_AngelNearest = 2.5f;
+        const float k_AngelFarthest = 6f;
+        const float k_AngelFromWall = 0.6f;
         const float k_DipAlpha = 0.75f;
         const float k_DipSeconds = 0.12f;
         const float k_RiseSeconds = 0.45f;
@@ -34,12 +43,12 @@ namespace CardboardXR.Demos.Ascii
         AsciiMeshes m_Meshes;
         AsciiAngels m_Angels;
         AsciiMathQuiz m_Quiz;
+        AsciiWhiteboard m_Notes;
         AsciiPeople m_People;
         ScreenFade m_Fade;
         Coroutine m_Crossing;
         bool m_Capturing;
         RectTransform m_Panel;
-        RectTransform m_DeathPanel;
         TMP_Text m_Hint;
         M3Button m_MoveButton;
         AudioSource m_Audio;
@@ -48,7 +57,6 @@ namespace CardboardXR.Demos.Ascii
         PlaneDetectionMode? m_PreviousDetection;
         bool m_HadPassthrough;
         bool m_InsideWorld;
-        bool m_Dead;
 
         public override void OnDemoEnter(CoreServices core)
         {
@@ -78,11 +86,13 @@ namespace CardboardXR.Demos.Ascii
 
             m_Angels = gameObject.AddComponent<AsciiAngels>();
             m_Angels.Configure(m_AngelPrefab, core.Head, m_AsciiMaterial, m_Meshes.MeshManager);
-            m_Angels.Caught += OnCaught;
 
+            m_Notes = gameObject.AddComponent<AsciiWhiteboard>();
+            m_Notes.Configure(core.HandTracker, core.Head, core.Boundary.transform);
             m_Quiz = gameObject.AddComponent<AsciiMathQuiz>();
-            m_Quiz.Configure(planes, core.Head, m_Angels.SpeedUp, OnQuizComplete);
-            m_Quiz.WallSelected += OnQuizWallSelected;
+            m_Quiz.Configure(core.Head, m_Angels, m_Notes, AngelSpawn, OnEscapeOpened, () => m_Core.Demos.ExitToLobby(),
+                OnPlayAgain);
+            PinchRouter.Handler = this;
 
             m_People = gameObject.AddComponent<AsciiPeople>();
             m_People.Configure(core.Passthrough);
@@ -92,7 +102,6 @@ namespace CardboardXR.Demos.Ascii
             m_Audio.playOnAwake = false;
             m_Whoosh = Whoosh();
             BuildPanel();
-            BuildDeathPanel();
             UpdateHint();
             Debug.Log("[Ascii] Ready: look at the floor and pinch to open the glyph gate");
         }
@@ -100,14 +109,20 @@ namespace CardboardXR.Demos.Ascii
         public override void OnDemoExit(CoreServices core)
         {
             core.Placer.Placed -= OnPlaced;
+            if (ReferenceEquals(PinchRouter.Handler, this))
+                PinchRouter.Clear();
             if (m_Portal != null)
                 m_Portal.Crossed -= OnCrossed;
             if (m_Quiz != null)
             {
-                m_Quiz.WallSelected -= OnQuizWallSelected;
                 m_Quiz.Stop();
                 Destroy(m_Quiz);
                 m_Quiz = null;
+            }
+            if (m_Notes != null)
+            {
+                Destroy(m_Notes);
+                m_Notes = null;
             }
             StopCrossing();
             SetInsideWorld(false);
@@ -132,7 +147,6 @@ namespace CardboardXR.Demos.Ascii
             }
             if (m_Angels != null)
             {
-                m_Angels.Caught -= OnCaught;
                 m_Angels.SetInside(false);
                 Destroy(m_Angels);
                 m_Angels = null;
@@ -223,80 +237,76 @@ namespace CardboardXR.Demos.Ascii
             SetInsideWorld(inside);
             m_Surfaces?.SetDrawn(inside);
             m_Meshes?.SetActive(inside);
+            m_Angels?.SetInside(inside);
             m_MoveButton.Interactable = !inside;
             if (inside)
+            {
+                M3Fade.Hide(m_Panel.gameObject);
                 m_Quiz?.Begin();
+            }
             else
             {
-                m_Quiz?.Stop();
-                m_Angels?.SetInside(false);
+                // Out through the reopened portal is the win; any other way out ends the round.
+                if (m_Quiz != null && m_Quiz.State == AsciiQuizState.Escape)
+                    m_Quiz.Exited();
+                else
+                    m_Quiz?.Stop();
+                M3Fade.Show(m_Panel.gameObject);
             }
             UpdateHint();
         }
 
-        void OnQuizWallSelected(ARPlane quizWall)
+        // Ahead of the player, short of the first wall that way.
+        Vector3 AngelSpawn(Vector3 facing)
         {
-            if (m_InsideWorld && !m_Dead && !m_Angels.HasAngel)
-                m_Angels?.SetInside(true, OppositeWallSpawn(quizWall));
-            UpdateHint();
-        }
-
-        Vector3 OppositeWallSpawn(ARPlane quizWall)
-        {
-            var center2D = quizWall.centerInPlaneSpace;
-            var center = quizWall.transform.TransformPoint(new Vector3(center2D.x, 0f, center2D.y));
-            var inward = Vector3.ProjectOnPlane(m_Core.Head.position - center, Vector3.up);
-            if (inward.sqrMagnitude < 1e-4f)
-                inward = Vector3.ProjectOnPlane(quizWall.transform.up, Vector3.up);
-            inward.Normalize();
-
-            ARPlane opposite = null;
-            var farthest = 2f;
-            foreach (var plane in m_Planes.trackables)
+            var head = m_Core.Head.position;
+            var distance = k_AngelFarthest;
+            if (m_Planes != null)
             {
-                if (plane == null || plane == quizWall || plane.subsumedBy != null ||
-                    plane.trackingState != TrackingState.Tracking || plane.alignment != PlaneAlignment.Vertical ||
-                    Mathf.Abs(Vector3.Dot(plane.transform.up, inward)) < 0.7f)
-                    continue;
-                var planeCenter2D = plane.centerInPlaneSpace;
-                var planeCenter = plane.transform.TransformPoint(new Vector3(planeCenter2D.x, 0f, planeCenter2D.y));
-                var distance = Vector3.Dot(planeCenter - center, inward);
-                if (distance > farthest)
+                foreach (var plane in m_Planes.trackables)
                 {
-                    farthest = distance;
-                    opposite = plane;
+                    if (plane == null || plane.subsumedBy != null || plane.trackingState != TrackingState.Tracking ||
+                        plane.alignment != PlaneAlignment.Vertical)
+                        continue;
+                    var normal = plane.transform.up;
+                    var along = Vector3.Dot(facing, normal);
+                    if (Mathf.Abs(along) < 0.5f)
+                        continue;
+                    var wall = Vector3.Dot(plane.transform.position - head, normal) / along;
+                    if (wall > 0.5f)
+                        distance = Mathf.Min(distance, wall - k_AngelFromWall);
                 }
             }
-
-            var spawn = center + inward * 6f;
-            if (opposite != null)
-            {
-                var oppositeCenter2D = opposite.centerInPlaneSpace;
-                var oppositeCenter = opposite.transform.TransformPoint(new Vector3(oppositeCenter2D.x, 0f, oppositeCenter2D.y));
-                spawn = oppositeCenter - inward * 0.5f;
-            }
-            spawn.y = m_Core.Head.position.y - 1.55f;
+            distance = Mathf.Clamp(distance, k_AngelNearest, k_AngelFarthest);
+            var spawn = head + facing * distance;
+            spawn.y = head.y - 1.55f;
             return spawn;
         }
 
-        void OnQuizComplete()
+        void OnEscapeOpened()
         {
             m_Portal?.UnlockReturnPortal();
+            m_Audio.PlayOneShot(m_Whoosh, 0.5f);
             UpdateHint();
         }
 
-        void OnCaught()
+        void OnPlayAgain()
         {
-            if (m_Dead)
-                return;
-            m_Dead = true;
-            m_Quiz?.Stop();
-            m_Angels?.SetInside(false);
-            WorldUi.PlaceInFront(m_DeathPanel, m_Core.Head, 1.2f, 4f);
-            m_DeathPanel.gameObject.SetActive(true);
-            Debug.Log("[Ascii] You were caught by the weeping angel");
+            m_Portal?.Relock();
             UpdateHint();
         }
+
+        // During a question, a pinch in the air (not on a panel) writes a red note.
+        public bool TryBeginPinch(GameObject gazeTarget, PinchSource source)
+        {
+            if (source != PinchSource.Hand || m_Quiz == null || !m_Quiz.CanWrite || m_Notes == null)
+                return false;
+            if (gazeTarget != null && gazeTarget.GetComponentInParent<Canvas>() != null)
+                return false;
+            return m_Notes.Begin();
+        }
+
+        public void EndPinch() => m_Notes?.End();
 
         // Inside: drop the passthrough screen and mono eyes so Cardboard stereo and the hand
         // skeleton return. Outside: restore whatever passthrough was on before the crossing.
@@ -353,7 +363,7 @@ namespace CardboardXR.Demos.Ascii
 
         void Move()
         {
-            if (m_Portal == null || m_InsideWorld || m_Dead)
+            if (m_Portal == null || m_InsideWorld)
                 return;
             var portal = m_Portal;
             portal.Crossed -= OnCrossed;
@@ -365,6 +375,7 @@ namespace CardboardXR.Demos.Ascii
             SetCapture(false);
             m_Surfaces?.SetLive(false);
             m_Meshes?.SetActive(false);
+            m_Quiz?.Stop();
             m_Angels?.SetInside(false);
             m_Audio.PlayOneShot(m_Whoosh, 0.3f);
             Debug.Log("[Ascii] Closing the gate to move it");
@@ -386,16 +397,12 @@ namespace CardboardXR.Demos.Ascii
                 return;
             if (m_Portal == null)
                 m_Hint.text = "Look at the floor and pinch to raise the glyph gate.\nNo highlight? Look down at the floor for a moment.";
+            else if (m_Quiz != null && m_Quiz.State == AsciiQuizState.Won)
+                m_Hint.text = "You escaped. Play again or head back to the lobby.";
             else if (!m_Portal.IsInside)
-                m_Hint.text = "Passthrough room outside. Green ASCII through the gate.\nWalk through to step inside. Unplug first if it's on a cable.";
-            else if (m_Dead)
-                m_Hint.text = "The angel caught you.";
-            else if (m_InsideWorld && m_Quiz?.QuizWall == null)
-                m_Hint.text = "Scanning the room for a quiz wall. Look around the room.";
-            else if (m_Portal.ReturnUnlocked)
-                m_Hint.text = "All answers correct. The return portal is open.";
+                m_Hint.text = "Passthrough room outside. Green ASCII through the gate.\nWalk through to play. Unplug first if it's on a cable.";
             else
-                m_Hint.text = "Answer every question before time runs out. Look at the angel to freeze it.";
+                m_Hint.text = "Answer the questions. Look at the angel to freeze it.";
         }
 
         void BuildPanel()
@@ -406,19 +413,6 @@ namespace CardboardXR.Demos.Ascii
             m_MoveButton = M3.Button("Move portal", m_Panel, "Move gate", M3Button.Variant.Tonal,
                 new Vector2(0f, -44f), Move, "open_with");
             WorldUi.PlaceInFront(m_Panel, m_Core.Head, distance, 8f, -25f);
-        }
-
-        void BuildDeathPanel()
-        {
-            m_DeathPanel = WorldUi.Panel("Ascii Death Screen", transform, new Vector2(520f, 260f), 1.2f,
-                M3Theme.SurfaceContainer);
-            M3.Text("Caught", m_DeathPanel, "The angel caught you", M3Theme.Type.HeadlineSmall,
-                new Vector2(0f, 54f), new Vector2(460f, 56f));
-            M3.Text("Retry", m_DeathPanel, "The portal is lost", M3Theme.Type.BodyLarge,
-                new Vector2(0f, 6f), new Vector2(440f, 36f));
-            M3.Button("Return to lobby", m_DeathPanel, "Return to lobby", M3Button.Variant.Filled,
-                new Vector2(0f, -66f), () => m_Core.Demos.ExitToLobby(), width: 240f);
-            m_DeathPanel.gameObject.SetActive(false);
         }
 
         static AudioClip Whoosh()

@@ -3,6 +3,7 @@
     "rootNamespace": "CardboardXR.Demos.Ascii",
     "references": [
         "CardboardXR.Demos",
+        "CardboardXR.Demos.Paint",
         "CardboardXR.Stereo",
         "CardboardXR.Hands",
         "CardboardXR.Interaction",

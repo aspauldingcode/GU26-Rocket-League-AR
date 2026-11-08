@@ -51,6 +51,8 @@ Shader "CardboardXR/Demos/AsciiTerminal"
             float _AsciiPersonBlend;
             // 0 once the room is fully drawn; from 1 down to 0 the glyphs grow outward from the head.
             float _AsciiWave;
+            // 0 to 1 as the player turns to stone: every glyph drains to gray.
+            float _AsciiStone;
 
             static const float3 k_Light = float3(0.25, 0.9, 0.3);
 
@@ -249,6 +251,11 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 half person = smoothstep(0.35, 0.65, cover);
                 if (person > 0.0)
                     color = lerp(color, Person(tile, cover), person);
+                if (_AsciiStone > 0.0)
+                {
+                    half luma = dot(color, half3(0.299, 0.587, 0.114));
+                    color = lerp(color, half3(0.62, 0.6, 0.56) * luma * 1.6, _AsciiStone);
+                }
                 return half4(color, 1.0);
             }
             ENDHLSL

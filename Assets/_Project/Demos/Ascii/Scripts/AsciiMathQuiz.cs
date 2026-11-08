@@ -1,230 +1,479 @@
 using System;
-using CardboardXR.Interaction;
 using CardboardXR.UI;
 using TMPro;
 using UnityEngine;
-using UnityEngine.XR.ARFoundation;
-using UnityEngine.XR.ARSubsystems;
+using UnityEngine.UI;
 
 namespace CardboardXR.Demos.Ascii
 {
+    // The math game inside the gate, played on AsciiQuizRules. A briefing explains it; Start puts a
+    // weeping angel ahead of the player. Each question is read facing the angel (held still for the
+    // ten seconds) on a panel between player and angel, typeset with MathJax (Tools/ascii_mathjax.cjs).
+    // Then four Kahoot-style answers appear on a panel behind the player, so answering means turning
+    // away and letting the angel creep closer. A red scratch pad (AsciiWhiteboard) sits toward the
+    // angel for working it out; it's wiped after every answer. Three mistakes turn the player to
+    // stone; finishing the five opens the portal, and walking out through it wins. Logs [Ascii].
     public class AsciiMathQuiz : MonoBehaviour
     {
-        const float k_SecondsPerQuestion = 15f;
-        const float k_WallRetrySeconds = 1f;
-
-        readonly (string prompt, int answer, int a, int b, int c, int d)[] m_Questions =
+        // Fixed, so a demo can be played through on purpose. Answer key: B, D, A, C, B.
+        static readonly (string image, string plain, string[] choices, int answer)[] k_Questions =
         {
-            ("8 x 7 = ?", 56, 42, 49, 56, 63),
-            ("36 / 4 = ?", 9, 6, 8, 9, 12),
-            ("15 + 28 = ?", 43, 41, 42, 43, 45),
-            ("9 x 6 = ?", 54, 45, 48, 54, 56),
-            ("81 - 37 = ?", 44, 34, 42, 44, 46),
+            ("Question1", "7 × 8", new[] { "54", "56", "63", "48" }, 1),
+            ("Question2", "144 ÷ 12", new[] { "14", "11", "16", "12" }, 3),
+            ("Question3", "3² + 4²", new[] { "25", "14", "49", "24" }, 0),
+            ("Question4", "236 + 489", new[] { "715", "625", "725", "735" }, 2),
+            ("Question5", "√81 + 6", new[] { "13", "15", "17", "87" }, 1),
         };
+        static readonly string k_AnswerKey = "B, D, A, C, B";
 
-        ARPlaneManager m_Planes;
+        // Kahoot's red triangle, blue diamond, yellow circle and green square.
+        static readonly Color[] k_ShapeColors =
+        {
+            new(0.89f, 0.11f, 0.24f), new(0.07f, 0.41f, 0.81f), new(0.85f, 0.62f, 0f), new(0.15f, 0.54f, 0.05f),
+        };
+        static readonly (string icon, float degrees)[] k_Shapes = { ("play_arrow", 90f), ("stop", 45f), ("circle", 0f), ("stop", 0f) };
+        static readonly string[] k_Letters = { "A", "B", "C", "D" };
+        static readonly Color k_Right = new(0.55f, 0.9f, 0.55f);
+        static readonly int k_StoneId = Shader.PropertyToID("_AsciiStone");
+
+        // How long the angel has to walk unseen to reach the player: a minute, enough for five
+        // answers given promptly.
+        const float k_ReachSeconds = 60f;
+        const float k_AngelReach = 0.55f;
+        const float k_StoneSeconds = 1.6f;
+        const float k_QuestionDistance = 1.7f;
+        const float k_BoardDistance = 0.62f;
+        const float k_AnswerDistance = 1.3f;
+        const float k_FrontDistance = 1.4f;
+        // The equation's height in dp per texture pixel: about 60 dp for a line of numbers.
+        const float k_DpPerPixel = 0.5f;
+
+        readonly AsciiQuizRules m_Rules = new();
         Transform m_Head;
-        Action m_OnWrong;
-        Action m_OnComplete;
-        ARPlane m_Wall;
-        RectTransform m_Panel;
-        TMP_Text m_QuestionText;
-        TMP_Text m_TimerText;
-        TMP_Text m_FeedbackText;
-        M3Button[] m_AnswerButtons;
-        int m_QuestionIndex;
-        float m_Deadline;
-        float m_NextWallCheck;
-        bool m_Active;
-        bool m_Completed;
+        AsciiAngels m_Angels;
+        AsciiWhiteboard m_Notes;
+        Func<Vector3, Vector3> m_SpawnPoint;
+        Action m_OnEscape;
+        Action m_OnLobby;
+        Action m_OnPlayAgain;
+        Texture2D[] m_Images;
+        Vector3 m_AngelDirection = Vector3.forward;
+        float m_Stone;
 
-        public event Action<ARPlane> WallSelected;
-        public ARPlane QuizWall => m_Wall;
+        RectTransform m_Briefing;
+        RectTransform m_Question;
+        RectTransform m_Board;
+        RectTransform m_Answers;
+        RectTransform m_End;
+        TMP_Text m_QuestionHeader;
+        TMP_Text m_Mistakes;
+        RawImage m_Equation;
+        TMP_Text m_PlainEquation;
+        TMP_Text m_Count;
+        TMP_Text m_Status;
+        TMP_Text m_AnswersHeader;
+        TMP_Text m_AnswersTimer;
+        TMP_Text m_Feedback;
+        M3Button[] m_Choices;
+        TMP_Text m_EndTitle;
+        TMP_Text m_EndBody;
+        M3Button m_EndPrimary;
 
-        public void Configure(ARPlaneManager planes, Transform head, Action onWrong, Action onComplete)
+        public AsciiQuizState State => m_Rules.State;
+        public bool CanWrite => m_Rules.CanWrite;
+        public bool Playing => m_Rules.Playing;
+
+        // spawnPoint takes the flat direction the player faces and returns where the angel stands.
+        public void Configure(Transform head, AsciiAngels angels, AsciiWhiteboard notes, Func<Vector3, Vector3> spawnPoint,
+            Action onEscape, Action onLobby, Action onPlayAgain)
         {
-            m_Planes = planes;
             m_Head = head;
-            m_OnWrong = onWrong;
-            m_OnComplete = onComplete;
+            m_Angels = angels;
+            m_Notes = notes;
+            m_SpawnPoint = spawnPoint;
+            m_OnEscape = onEscape;
+            m_OnLobby = onLobby;
+            m_OnPlayAgain = onPlayAgain;
+            m_Angels.Caught += OnCaught;
+            m_Rules.Changed += OnChanged;
+            m_Images = new Texture2D[k_Questions.Length];
+            for (var i = 0; i < k_Questions.Length; i++)
+            {
+                m_Images[i] = Resources.Load<Texture2D>("AsciiMath/" + k_Questions[i].image);
+                if (m_Images[i] == null)
+                    Debug.LogWarning($"[Ascii] No MathJax image for question {i + 1}; showing it as text");
+            }
+            BuildBriefing();
+            BuildQuestion();
+            BuildBoard();
+            BuildAnswers();
+            BuildEnd();
+            HideAll(immediately: true);
         }
 
-        public void Begin()
-        {
-            if (m_Completed)
-                return;
-            m_Active = true;
-            TrySelectWall();
-            if (m_Panel != null)
-                m_Panel.gameObject.SetActive(true);
-        }
+        // Stepping through the gate: how to play, then Start.
+        public void Begin() => m_Rules.Brief(Time.unscaledTime);
 
-        public void Stop()
+        // Out through the reopened portal.
+        public void Exited() => m_Rules.Exited(Time.unscaledTime);
+
+        // Leaving the demo or moving the gate: back to waiting outside.
+        public void Stop() => m_Rules.Reset(Time.unscaledTime);
+
+        void OnDestroy()
         {
-            m_Active = false;
-            if (m_Panel != null)
-                m_Panel.gameObject.SetActive(false);
+            if (m_Angels != null)
+                m_Angels.Caught -= OnCaught;
+            m_Rules.Changed -= OnChanged;
+            Shader.SetGlobalFloat(k_StoneId, 0f);
         }
 
         void Update()
         {
-            if (!m_Active)
+            if (m_Head == null)
                 return;
-            if (m_Wall == null || m_Wall.subsumedBy != null || m_Wall.trackingState != TrackingState.Tracking)
+            var now = Time.unscaledTime;
+            m_Rules.Tick(now);
+            m_Angels.SetHeld(m_Rules.AngelsHeld);
+            UpdateCountdowns(now);
+            var stone = m_Rules.State == AsciiQuizState.Dead ? 1f : 0f;
+            if (m_Stone != stone)
             {
-                m_Wall = null;
-                if (m_Panel != null)
-                    m_Panel.gameObject.SetActive(false);
-                if (Time.unscaledTime >= m_NextWallCheck)
-                {
-                    m_NextWallCheck = Time.unscaledTime + k_WallRetrySeconds;
-                    TrySelectWall();
-                }
-                return;
+                m_Stone = Mathf.MoveTowards(m_Stone, stone, Time.unscaledDeltaTime / k_StoneSeconds);
+                Shader.SetGlobalFloat(k_StoneId, Mathf.SmoothStep(0f, 1f, m_Stone));
             }
-
-            PlaceOnWall();
-            if (m_Completed)
-                return;
-            var remaining = Mathf.Max(0f, m_Deadline - Time.unscaledTime);
-            m_TimerText.text = $"Time  {Mathf.CeilToInt(remaining):00}";
-            if (remaining <= 0f)
-                WrongAnswer("Time's up. Try again.");
         }
 
-        bool TrySelectWall()
-        {
-            if (m_Planes == null)
-                return false;
-            ARPlane best = null;
-            var bestArea = 0f;
-            foreach (var plane in m_Planes.trackables)
-            {
-                if (plane == null || plane.trackingState != TrackingState.Tracking || plane.subsumedBy != null ||
-                    plane.alignment != PlaneAlignment.Vertical)
-                    continue;
-                var area = plane.size.x * plane.size.y;
-                if (area <= bestArea)
-                    continue;
-                best = plane;
-                bestArea = area;
-            }
-            if (best == null)
-                return false;
+        void OnCaught() => m_Rules.Caught(Time.unscaledTime);
 
-            m_Wall = best;
-            BuildPanel();
-            WallSelected?.Invoke(m_Wall);
-            Debug.Log($"[Ascii] Quiz panel placed on scanned wall ({bestArea:F1} m2)");
-            return true;
+        void OnChanged(AsciiQuizState from, AsciiQuizState to)
+        {
+            Debug.Log($"[Ascii] Game {from} -> {to} (question {m_Rules.Question + 1}, {m_Rules.Correct} right, {m_Rules.Mistakes} wrong)");
+            switch (to)
+            {
+                case AsciiQuizState.Idle:
+                    HideAll();
+                    m_Notes.Clear();
+                    m_Angels.Despawn();
+                    break;
+                case AsciiQuizState.Briefing:
+                    HideAll();
+                    m_Notes.Clear();
+                    m_Angels.Despawn();
+                    WorldUi.PlaceInFront(m_Briefing, m_Head, k_FrontDistance, 0f);
+                    M3Fade.Show(m_Briefing.gameObject);
+                    break;
+                case AsciiQuizState.Reading:
+                    if (from == AsciiQuizState.Briefing)
+                        SpawnAngel();
+                    ShowQuestion();
+                    break;
+                case AsciiQuizState.Answering:
+                    ShowAnswers();
+                    break;
+                case AsciiQuizState.Feedback:
+                    m_Notes.Clear();
+                    ShowFeedback();
+                    break;
+                case AsciiQuizState.Escape:
+                    ShowEscape();
+                    m_OnEscape?.Invoke();
+                    break;
+                case AsciiQuizState.Dead:
+                case AsciiQuizState.Won:
+                    m_Notes.Clear();
+                    ShowEnd(to);
+                    break;
+            }
         }
 
-        void BuildPanel()
+        void SpawnAngel()
         {
-            if (m_Panel != null)
-                Destroy(m_Panel.gameObject);
-            m_Panel = M3.Canvas("Ascii Math Quiz", transform, new Vector2(640f, 420f), 1.8f,
-                M3Theme.SurfaceContainer, M3Theme.k_ShapePanel);
-            m_Panel.gameObject.AddComponent<GazeCanvas>();
-            m_QuestionText = M3.Text("Question", m_Panel, "", M3Theme.Type.HeadlineSmall,
-                new Vector2(0f, 126f), new Vector2(560f, 64f));
-            m_TimerText = M3.Text("Timer", m_Panel, "", M3Theme.Type.TitleMedium,
-                new Vector2(0f, 76f), new Vector2(300f, 32f));
-            m_FeedbackText = M3.Text("Feedback", m_Panel, "", M3Theme.Type.BodyMedium,
-                new Vector2(0f, 38f), new Vector2(540f, 30f));
+            var facing = Flat(m_Head.forward, Vector3.forward);
+            var spawn = m_SpawnPoint(facing);
+            var distance = Vector3.ProjectOnPlane(spawn - m_Head.position, Vector3.up).magnitude;
+            m_AngelDirection = facing;
+            m_Angels.SetHeld(true);
+            m_Angels.Spawn(spawn, Mathf.Max(0.02f, (distance - k_AngelReach) / k_ReachSeconds));
+            Debug.Log($"[Ascii] Answer key {k_AnswerKey}");
+        }
 
-            m_AnswerButtons = new M3Button[4];
-            const float width = 250f;
-            const float x = 132f;
-            m_AnswerButtons[0] = M3.Button("Answer A", m_Panel, "", M3Button.Variant.Tonal,
-                new Vector2(-x, -32f), () => SelectAnswer(0), width: width);
-            m_AnswerButtons[1] = M3.Button("Answer B", m_Panel, "", M3Button.Variant.Tonal,
-                new Vector2(x, -32f), () => SelectAnswer(1), width: width);
-            m_AnswerButtons[2] = M3.Button("Answer C", m_Panel, "", M3Button.Variant.Tonal,
-                new Vector2(-x, -100f), () => SelectAnswer(2), width: width);
-            m_AnswerButtons[3] = M3.Button("Answer D", m_Panel, "", M3Button.Variant.Tonal,
-                new Vector2(x, -100f), () => SelectAnswer(3), width: width);
-            PlaceOnWall();
-            m_Panel.gameObject.SetActive(m_Active);
-            if (m_Completed)
+        void ShowQuestion()
+        {
+            if (m_Angels.TryGetAngel(out var angel))
+                m_AngelDirection = Flat(angel - m_Head.position, m_AngelDirection);
+            var index = m_Rules.Question;
+            M3Fade.Hide(m_Briefing.gameObject);
+            M3Fade.Hide(m_Answers.gameObject);
+            M3Fade.Hide(m_End.gameObject);
+
+            m_QuestionHeader.text = $"Question {index + 1} of {AsciiQuizRules.k_Questions}";
+            SetEquation(index);
+            m_Count.color = M3Theme.Primary;
+            Place(m_Question, m_AngelDirection, k_QuestionDistance, 0.3f);
+            Place(m_Board, m_AngelDirection, k_BoardDistance, -0.3f);
+            M3Fade.Show(m_Question.gameObject);
+            M3Fade.Show(m_Board.gameObject);
+        }
+
+        void ShowAnswers()
+        {
+            var question = k_Questions[m_Rules.Question];
+            m_AnswersHeader.text = $"Question {m_Rules.Question + 1} of {AsciiQuizRules.k_Questions}: pick the answer";
+            for (var i = 0; i < m_Choices.Length; i++)
             {
-                m_QuestionText.text = "All answers correct";
-                m_TimerText.text = "The return portal is open";
-                m_FeedbackText.text = "Go back through the doorway to escape.";
-                foreach (var button in m_AnswerButtons)
-                    button.Interactable = false;
+                m_Choices[i].Text = question.choices[i];
+                m_Choices[i].Selected = false;
+                m_Choices[i].Interactable = true;
+            }
+            m_Feedback.text = "";
+            Place(m_Answers, -m_AngelDirection, k_AnswerDistance, 0f);
+            M3Fade.Show(m_Answers.gameObject);
+        }
+
+        void ShowFeedback()
+        {
+            var question = k_Questions[m_Rules.Question];
+            foreach (var choice in m_Choices)
+                choice.Interactable = false;
+            var correct = question.choices[question.answer];
+            string text;
+            if (m_Rules.LastCorrect)
+                text = "Correct!";
+            else if (m_Rules.LastTimedOut)
+                text = $"Time's up. It was {correct}.";
+            else
+                text = $"Wrong. It was {correct}.";
+            if (!m_Rules.LastCorrect)
+                text += $"  Mistakes {m_Rules.Mistakes} of {AsciiQuizRules.k_MaxMistakes}.";
+            m_Feedback.text = text;
+            m_Feedback.color = m_Rules.LastCorrect ? k_Right : M3Theme.Error;
+            m_Status.text = text;
+            m_Count.text = m_Rules.LastCorrect ? "Correct" : "Wrong";
+            m_Count.color = m_Rules.LastCorrect ? k_Right : M3Theme.Error;
+            m_Mistakes.text = MistakesText();
+        }
+
+        void ShowEscape()
+        {
+            M3Fade.Hide(m_Answers.gameObject);
+            M3Fade.Hide(m_Board.gameObject);
+            m_QuestionHeader.text = $"{m_Rules.Correct} of {AsciiQuizRules.k_Questions} right";
+            m_Equation.gameObject.SetActive(false);
+            m_PlainEquation.text = "The portal is open";
+            m_PlainEquation.gameObject.SetActive(true);
+            m_Count.text = "";
+            m_Status.text = "Walk back through the doorway to escape. Keep an eye on the angel.";
+            WorldUi.PlaceInFront(m_Question, m_Head, k_QuestionDistance, 5f);
+            M3Fade.Show(m_Question.gameObject);
+        }
+
+        void ShowEnd(AsciiQuizState state)
+        {
+            HideAll();
+            if (state == AsciiQuizState.Dead)
+            {
+                m_EndTitle.text = "You turned to stone";
+                m_EndTitle.color = M3Theme.Error;
+                m_EndBody.text = m_Rules.Death == AsciiQuizDeath.Caught
+                    ? "The angel reached you while you weren't looking."
+                    : $"Three wrong answers. You got {m_Rules.Correct} of {AsciiQuizRules.k_Questions} right.";
+                m_EndPrimary.Text = "Try again";
+                m_EndPrimary.Icon = "replay";
             }
             else
             {
-                PresentQuestion();
+                m_EndTitle.text = "Congratulations, you survived!";
+                m_EndTitle.color = k_Right;
+                m_EndBody.text = $"You escaped the ASCII dimension with {m_Rules.Correct} of {AsciiQuizRules.k_Questions} right " +
+                                 $"and {m_Rules.Mistakes} {(m_Rules.Mistakes == 1 ? "mistake" : "mistakes")}.";
+                m_EndPrimary.Text = "Play again";
+                m_EndPrimary.Icon = "replay";
             }
+            WorldUi.PlaceInFront(m_End, m_Head, k_FrontDistance, 0f);
+            M3Fade.Show(m_End.gameObject);
         }
 
-        void PlaceOnWall()
+        void UpdateCountdowns(float now)
         {
-            if (m_Panel == null || m_Wall == null || m_Head == null)
-                return;
-            var center = m_Wall.centerInPlaneSpace;
-            var position = m_Wall.transform.TransformPoint(new Vector3(center.x, 0f, center.y));
-            var towardHead = Vector3.ProjectOnPlane(m_Head.position - position, Vector3.up);
-            var normal = m_Wall.transform.up;
-            if (towardHead.sqrMagnitude > 1e-4f && Vector3.Dot(normal, towardHead) < 0f)
-                normal = -normal;
-            m_Panel.SetPositionAndRotation(position + normal * 0.06f, Quaternion.LookRotation(-normal, Vector3.up));
-        }
-
-        void PresentQuestion()
-        {
-            var question = m_Questions[m_QuestionIndex];
-            m_QuestionText.text = $"{m_QuestionIndex + 1} / {m_Questions.Length}    {question.prompt}";
-            m_FeedbackText.text = "";
-            m_FeedbackText.color = M3Theme.OnSurfaceVariant;
-            for (var i = 0; i < m_AnswerButtons.Length; i++)
-                m_AnswerButtons[i].Text = Choice(question, i).ToString();
-            m_Deadline = Time.unscaledTime + k_SecondsPerQuestion;
-            m_TimerText.text = $"Time  {k_SecondsPerQuestion:00}";
-        }
-
-        static int Choice((string prompt, int answer, int a, int b, int c, int d) question, int index) => index switch
-        {
-            0 => question.a,
-            1 => question.b,
-            2 => question.c,
-            _ => question.d,
-        };
-
-        void SelectAnswer(int index)
-        {
-            if (!m_Active || m_Completed || m_Wall == null)
-                return;
-            if (Choice(m_Questions[m_QuestionIndex], index) != m_Questions[m_QuestionIndex].answer)
+            var remaining = Mathf.CeilToInt(m_Rules.Remaining(now));
+            switch (m_Rules.State)
             {
-                WrongAnswer("Incorrect. The angel is faster. Try again.");
-                return;
+                case AsciiQuizState.Reading:
+                    m_Count.text = remaining.ToString();
+                    m_Status.text = "Read it now. The angel is frozen. The answers appear behind you.";
+                    break;
+                case AsciiQuizState.Answering:
+                    m_Count.text = remaining.ToString();
+                    m_Count.color = remaining <= 5 ? M3Theme.Error : M3Theme.Primary;
+                    m_Status.text = "Turn around to answer. Pinch in the air to write notes.";
+                    m_AnswersTimer.text = $"{remaining} s";
+                    m_AnswersTimer.color = remaining <= 5 ? M3Theme.Error : M3Theme.OnSurface;
+                    break;
             }
-
-            m_QuestionIndex++;
-            if (m_QuestionIndex >= m_Questions.Length)
-            {
-                m_Completed = true;
-                m_QuestionText.text = "All answers correct";
-                m_TimerText.text = "The return portal is open";
-                m_FeedbackText.text = "Go back through the doorway to escape.";
-                foreach (var button in m_AnswerButtons)
-                    button.Interactable = false;
-                m_OnComplete?.Invoke();
-                return;
-            }
-            PresentQuestion();
+            if (m_Rules.Playing)
+                m_Mistakes.text = MistakesText();
         }
 
-        void WrongAnswer(string feedback)
+        string MistakesText() => $"Mistakes {m_Rules.Mistakes} / {AsciiQuizRules.k_MaxMistakes}";
+
+        void Choose(int index)
         {
-            m_OnWrong?.Invoke();
-            m_FeedbackText.text = feedback;
-            m_FeedbackText.color = M3Theme.Error;
-            m_Deadline = Time.unscaledTime + k_SecondsPerQuestion;
-            Debug.Log("[Ascii] Math answer incorrect; the angel speeds up");
+            if (m_Rules.State != AsciiQuizState.Answering)
+                return;
+            var question = k_Questions[m_Rules.Question];
+            m_Choices[index].Selected = true;
+            var correct = index == question.answer;
+            Debug.Log($"[Ascii] Question {m_Rules.Question + 1} ({question.plain}): picked {k_Letters[index]} " +
+                      $"{question.choices[index]}, {(correct ? "right" : "wrong")}");
+            m_Rules.Answer(correct, Time.unscaledTime);
+        }
+
+        void OnEndPrimary()
+        {
+            switch (m_Rules.State)
+            {
+                case AsciiQuizState.Dead:
+                    m_Rules.Brief(Time.unscaledTime);
+                    break;
+                case AsciiQuizState.Won:
+                    m_Rules.Reset(Time.unscaledTime);
+                    m_OnPlayAgain?.Invoke();
+                    break;
+            }
+        }
+
+        void SetEquation(int index)
+        {
+            var image = m_Images[index];
+            m_Equation.gameObject.SetActive(image != null);
+            m_PlainEquation.gameObject.SetActive(image == null);
+            m_PlainEquation.text = k_Questions[index].plain + " = ?";
+            if (image == null)
+                return;
+            m_Equation.texture = image;
+            var size = new Vector2(image.width, image.height) * k_DpPerPixel;
+            var fit = Mathf.Min(1f, 560f / size.x, 190f / size.y);
+            m_Equation.rectTransform.sizeDelta = size * fit;
+        }
+
+        void HideAll(bool immediately = false)
+        {
+            foreach (var panel in new[] { m_Briefing, m_Question, m_Board, m_Answers, m_End })
+            {
+                if (panel == null)
+                    continue;
+                if (immediately)
+                    panel.gameObject.SetActive(false);
+                else
+                    M3Fade.Hide(panel.gameObject);
+            }
+        }
+
+        void Place(RectTransform panel, Vector3 direction, float distance, float height)
+        {
+            var position = m_Head.position + direction * distance + Vector3.up * height;
+            panel.SetPositionAndRotation(position, Quaternion.LookRotation(position - m_Head.position, Vector3.up));
+        }
+
+        static Vector3 Flat(Vector3 direction, Vector3 fallback)
+        {
+            var flat = Vector3.ProjectOnPlane(direction, Vector3.up);
+            return flat.sqrMagnitude > 1e-4f ? flat.normalized : fallback;
+        }
+
+        static TMP_Text Big(TMP_Text text, float size)
+        {
+            text.fontSize = size;
+            text.textWrappingMode = TextWrappingModes.NoWrap;
+            text.overflowMode = TextOverflowModes.Overflow;
+            return text;
+        }
+
+        void BuildBriefing()
+        {
+            m_Briefing = WorldUi.Panel("Ascii How To Play", transform, new Vector2(640f, 470f), k_FrontDistance);
+            M3.Text("Title", m_Briefing, "Escape the ASCII dimension", M3Theme.Type.HeadlineSmall,
+                new Vector2(0f, 195f), new Vector2(580f, 40f));
+            M3.Text("Rules", m_Briefing,
+                "• Answer 5 multiple-choice math questions.\n" +
+                "• You get 10 s to read each one. The angel is frozen while you read.\n" +
+                "• Then 30 s to answer. The answers appear behind you, away from the angel.\n" +
+                "• Look at the angel to freeze it. Turn your back and it creeps closer.\n" +
+                "• Pinch in the air to write red notes while you work it out.\n" +
+                "• 3 wrong answers (running out of time counts) and you turn to stone.\n" +
+                "• Get 3 or more right and the portal reopens. Walk out through it to win.",
+                M3Theme.Type.BodyLarge, new Vector2(0f, 10f), new Vector2(580f, 300f), M3Theme.OnSurfaceVariant,
+                TextAlignmentOptions.TopLeft);
+            M3.Button("Start", m_Briefing, "Start", M3Button.Variant.Filled, new Vector2(0f, -190f),
+                () => m_Rules.Start(Time.unscaledTime), "play_arrow", 200f);
+        }
+
+        // Toward the angel, so reading it means looking at the angel. No gaze surface, so a pinch in
+        // front of it writes notes rather than hitting a panel.
+        void BuildQuestion()
+        {
+            m_Question = M3.Canvas("Ascii Question", transform, new Vector2(640f, 400f), k_QuestionDistance, M3Theme.SurfaceContainer);
+            m_QuestionHeader = M3.Text("Header", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(-140f, 165f),
+                new Vector2(320f, 32f), M3Theme.OnSurfaceVariant, TextAlignmentOptions.Left);
+            m_Mistakes = M3.Text("Mistakes", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(140f, 165f),
+                new Vector2(320f, 32f), M3Theme.OnSurfaceVariant, TextAlignmentOptions.Right);
+            var equation = M3.Group("Equation", m_Question, new Vector2(0f, 45f), new Vector2(560f, 190f));
+            m_Equation = equation.gameObject.AddComponent<RawImage>();
+            m_Equation.raycastTarget = false;
+            m_PlainEquation = Big(M3.Text("Plain Equation", m_Question, "", M3Theme.Type.HeadlineSmall,
+                new Vector2(0f, 45f), new Vector2(560f, 120f)), 56f);
+            m_Count = Big(M3.Text("Count", m_Question, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, -95f),
+                new Vector2(300f, 80f), M3Theme.Primary), 64f);
+            m_Status = M3.Text("Status", m_Question, "", M3Theme.Type.BodyLarge, new Vector2(0f, -162f),
+                new Vector2(590f, 48f), M3Theme.OnSurfaceVariant);
+        }
+
+        void BuildBoard()
+        {
+            m_Board = M3.Canvas("Ascii Scratch Pad", transform, new Vector2(460f, 280f), k_BoardDistance,
+                M3Theme.WithAlpha(M3Theme.Surface, 0.55f));
+            M3.Text("Label", m_Board, "Scratch pad: pinch in the air to write", M3Theme.Type.BodyMedium,
+                new Vector2(0f, 118f), new Vector2(420f, 28f), M3Theme.OnSurfaceVariant);
+        }
+
+        // Behind the player, away from the angel.
+        void BuildAnswers()
+        {
+            m_Answers = WorldUi.Panel("Ascii Answers", transform, new Vector2(680f, 400f), k_AnswerDistance);
+            m_AnswersHeader = M3.Text("Header", m_Answers, "", M3Theme.Type.TitleMedium, new Vector2(0f, 165f),
+                new Vector2(620f, 32f), M3Theme.OnSurfaceVariant);
+            m_AnswersTimer = Big(M3.Text("Timer", m_Answers, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, 118f),
+                new Vector2(200f, 48f)), 36f);
+            m_Choices = new M3Button[4];
+            const float width = 300f;
+            for (var i = 0; i < m_Choices.Length; i++)
+            {
+                var index = i;
+                var position = new Vector2(i % 2 == 0 ? -160f : 160f, i < 2 ? 36f : -48f);
+                var choice = M3.Button($"Answer {k_Letters[i]}", m_Answers, "", M3Button.Variant.Tonal, position,
+                    () => Choose(index), width: width);
+                choice.Label.fontSize = 26f;
+                var shape = M3.Icon("Shape", (RectTransform)choice.transform, k_Shapes[i].icon, 28f,
+                    new Vector2(-width / 2f + 34f, 0f), k_ShapeColors[i]);
+                shape.rectTransform.localEulerAngles = new Vector3(0f, 0f, k_Shapes[i].degrees);
+                m_Choices[i] = choice;
+            }
+            m_Feedback = M3.Text("Feedback", m_Answers, "", M3Theme.Type.TitleMedium, new Vector2(0f, -140f),
+                new Vector2(620f, 48f));
+        }
+
+        void BuildEnd()
+        {
+            m_End = WorldUi.Panel("Ascii Game Over", transform, new Vector2(580f, 330f), k_FrontDistance);
+            m_EndTitle = Big(M3.Text("Title", m_End, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, 100f),
+                new Vector2(540f, 56f)), 34f);
+            m_EndBody = M3.Text("Body", m_End, "", M3Theme.Type.BodyLarge, new Vector2(0f, 20f), new Vector2(500f, 80f),
+                M3Theme.OnSurfaceVariant);
+            m_EndPrimary = M3.Button("Primary", m_End, "Try again", M3Button.Variant.Filled, new Vector2(-115f, -105f),
+                OnEndPrimary, "replay", 210f);
+            M3.Button("Lobby", m_End, "Lobby", M3Button.Variant.Tonal, new Vector2(115f, -105f),
+                () => m_OnLobby?.Invoke(), "home", 210f);
         }
     }
 }

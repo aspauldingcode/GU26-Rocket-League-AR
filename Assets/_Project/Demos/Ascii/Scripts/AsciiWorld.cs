@@ -139,6 +139,13 @@ namespace CardboardXR.Demos.Ascii
             Crossed?.Invoke(inside);
         }
 
+        // Locks the way back again for another round. Only from outside, where the frame still shows.
+        public void Relock()
+        {
+            if (!IsInside)
+                ReturnUnlocked = false;
+        }
+
         public void UnlockReturnPortal()
         {
             ReturnUnlocked = true;

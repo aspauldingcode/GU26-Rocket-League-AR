@@ -27,10 +27,13 @@ namespace CardboardXR.Demos.Ascii
         float m_NextDestination;
         public event Action Caught;
 
+        // Held still whether or not it's seen: while a question is read, and between questions.
+        public bool Held { get; set; }
+
         public void Configure(Transform head, float speed)
         {
             m_Head = head;
-            m_Speed = Mathf.Max(0.1f, speed);
+            m_Speed = Mathf.Max(0.02f, speed);
             m_Seen = false;
             m_LoggedFreeze = false;
             m_Reached = false;
@@ -47,13 +50,6 @@ namespace CardboardXR.Demos.Ascii
             m_Agent.updateRotation = false;
             m_Agent.updateUpAxis = false;
             enabled = head != null;
-        }
-
-        public void SpeedUp()
-        {
-            m_Speed = Mathf.Min(m_Speed * 1.3f + 0.1f, 3f);
-            if (m_Agent != null)
-                m_Agent.speed = m_Speed;
         }
 
         public void RefreshNavigation()
@@ -98,7 +94,7 @@ namespace CardboardXR.Demos.Ascii
                 return;
             }
 
-            var frozen = m_Seen || Time.unscaledTime < m_FreezeUntil;
+            var frozen = Held || m_Seen || Time.unscaledTime < m_FreezeUntil;
             if (m_Agent != null && m_Agent.enabled && m_Agent.isOnNavMesh)
             {
                 m_Agent.isStopped = frozen;
