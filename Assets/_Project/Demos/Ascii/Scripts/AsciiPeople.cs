@@ -4,8 +4,8 @@ using UnityEngine;
 
 namespace CardboardXR.Demos.Ascii
 {
-    // Finds people in the camera image, so the terminal shows them through the glyphs and nobody in
-    // the real room gets walked into. DeepLab v3 (PASCAL VOC, class 15 is a person) on the same
+    // Finds people in the camera image, so the terminal draws them as light-blue glyphs and nobody
+    // in the real room gets walked into. DeepLab v3 (PASCAL VOC, class 15 is a person) on the same
     // Inference Engine the hand tracker runs, a few times a second, on the GPU when it can. The
     // terminal crossfades from the last mask to the new one. Logs [Ascii].
     public class AsciiPeople : MonoBehaviour
@@ -45,7 +45,7 @@ namespace CardboardXR.Demos.Ascii
             var asset = Resources.Load<ModelAsset>(k_ModelResource);
             if (asset == null)
             {
-                Debug.LogWarning("[Ascii] No person segmenter in Resources; people won't show through");
+                Debug.LogWarning("[Ascii] No person segmenter in Resources; people won't be drawn");
                 m_Failed = true;
                 return;
             }
@@ -53,7 +53,7 @@ namespace CardboardXR.Demos.Ascii
             var inputShape = model.inputs[0].shape;
             if (!inputShape.IsStatic() || inputShape.rank != 4)
             {
-                Debug.LogWarning($"[Ascii] Person segmenter input {inputShape} isn't a fixed image; people won't show through");
+                Debug.LogWarning($"[Ascii] Person segmenter input {inputShape} isn't a fixed image; people won't be drawn");
                 m_Failed = true;
                 return;
             }

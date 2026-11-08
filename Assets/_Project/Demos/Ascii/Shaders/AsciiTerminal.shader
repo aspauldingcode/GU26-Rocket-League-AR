@@ -129,15 +129,46 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 return occ;
             }
 
-            half3 Room(float2 uv, float2 pixel, float2 size, out bool drawn)
+            struct Tile
             {
-                // Screen grid, not the surface's UVs, so every character faces the camera. Near or
-                // far is decided per 12x20 block, so a big tile never splits into small pieces.
+                float2 cell;
+                float2 inCell;
+                float2 centerUv;
+            };
+
+            // Screen grid, not the surface's UVs, so every character faces the camera. Near or far
+            // is decided per 12x20 block, so a big tile never splits into small pieces.
+            Tile TileAt(float2 pixel, float2 size)
+            {
+                Tile tile;
                 float2 block = floor(pixel / k_AsciiNearCell);
-                float2 cell = AsciiCellPixels(Eye(((block + 0.5) * k_AsciiNearCell) / size));
-                float2 cellCoord = floor(pixel / cell);
-                float2 inCell = pixel / cell - cellCoord;
-                float2 centerUv = ((cellCoord + 0.5) * cell) / size;
+                tile.cell = AsciiCellPixels(Eye(((block + 0.5) * k_AsciiNearCell) / size));
+                float2 cellCoord = floor(pixel / tile.cell);
+                tile.inCell = pixel / tile.cell - cellCoord;
+                tile.centerUv = ((cellCoord + 0.5) * tile.cell) / size;
+                return tile;
+            }
+
+            // A person in the room, as light-blue glyphs: the camera's brightness inside the mask
+            // chooses the letters, so the figure keeps its shape and shading without breaking the
+            // terminal. Tiles on the outline get denser letters so the silhouette reads.
+            half3 Person(Tile tile, half cover)
+            {
+                half3 camera = CameraColor(tile.centerUv);
+                half lum = dot(camera, half3(0.299, 0.587, 0.114));
+                half rim = 1.0 - abs(cover * 2.0 - 1.0);
+                float pick = saturate(lerp(0.3, 0.95, lum) + rim * 0.25);
+                half glyph = AsciiGlyphInk(TEXTURE2D_ARGS(_GlyphAtlas, sampler_GlyphAtlas), _GlyphCount, pick, tile.inCell, tile.cell);
+                half3 ink = half3(0.55, 0.85, 1.0) * lerp(0.55, 1.0, lum);
+                half3 paper = half3(0.01, 0.025, 0.05);
+                return lerp(paper, ink, glyph);
+            }
+
+            half3 Room(Tile tile, float2 size, out bool drawn)
+            {
+                float2 cell = tile.cell;
+                float2 inCell = tile.inCell;
+                float2 centerUv = tile.centerUv;
                 float depth = Eye(centerUv);
 
                 half4 src = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv, 0);
@@ -194,25 +225,30 @@ Shader "CardboardXR/Demos/AsciiTerminal"
 #endif
 
                 half3 here = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, uv, 0).rgb;
+                // The doorway back is the real room, people included.
+                if (!empty && AsciiWindow(here))
+                    return half4(CameraColor(uv), 1.0);
+
+                Tile tile = TileAt(pixel, size);
                 half3 color;
                 bool drawn = false;
                 // No scene depth (nothing rendered): true black, not the clear color.
                 if (empty)
                     color = 0;
-                else if (AsciiWindow(here))
-                    color = CameraColor(uv);
                 else
                 {
-                    color = Room(uv, pixel, size, drawn);
+                    color = Room(tile, size, drawn);
                     // Angels already drew their own glyphs; hands and UI pass straight through.
                     if (!drawn)
                         color = here;
                 }
 
-                // People in the real room show through, so nobody gets walked into.
-                half person = PersonCover(uv);
+                // People in the real room become blue glyphs, so nobody gets walked into. One
+                // test per tile keeps whole letters; the narrow band keeps a tile room or person.
+                half cover = PersonCover(tile.centerUv);
+                half person = smoothstep(0.35, 0.65, cover);
                 if (person > 0.0)
-                    color = lerp(color, CameraColor(uv), person);
+                    color = lerp(color, Person(tile, cover), person);
                 return half4(color, 1.0);
             }
             ENDHLSL

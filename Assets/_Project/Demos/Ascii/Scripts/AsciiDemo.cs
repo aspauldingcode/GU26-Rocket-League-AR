@@ -11,7 +11,7 @@ namespace CardboardXR.Demos.Ascii
     // terminal rendering of the other side. Inside: passthrough off, the room is that same
     // screen-space terminal. Character size, density and brightness show distance. The room is
     // green; weeping angels are gray stone with a soft edge. The camera keeps running, so the
-    // open doorway and any person in the room show the real camera image. Logs [Ascii].
+    // open doorway shows the real room and people in it are drawn as light-blue glyphs. Logs [Ascii].
     public class AsciiDemo : Demo
     {
         const float k_DipAlpha = 0.75f;
