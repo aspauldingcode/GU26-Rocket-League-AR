@@ -14,42 +14,40 @@ namespace CardboardXR.Demos.Ascii
         const float k_MinSpeed = 0.28f;
         const float k_MaxSpeed = 0.45f;
 
+        static readonly int k_Force = Shader.PropertyToID("_ForceFurniture");
+        static readonly int k_Normal = Shader.PropertyToID("_UseMeshNormal");
+        static readonly int k_Volume = Shader.PropertyToID("_Volume");
+        static readonly int k_Figure = Shader.PropertyToID("_Figure");
+
         GameObject m_Prefab;
         Transform m_Head;
-        Material m_Stone;
+        Material m_Ascii;
         readonly List<WeepingAngel> m_Angels = new();
+        readonly MaterialPropertyBlock m_Block = new();
 
-        public void Configure(GameObject prefab, Transform head)
+        public void Configure(GameObject prefab, Transform head, Material ascii)
         {
             m_Prefab = prefab;
             m_Head = head;
-            m_Stone = StoneMaterial(prefab);
+            m_Ascii = ascii;
         }
 
-        // The angel stays stone. Never the ASCII glyph shader, which turns the statue into a
-        // mirror of the room when you walk up to it.
-        static Material StoneMaterial(GameObject prefab)
+        // The statue is shaded with its own normals. The terminal draws it as HDR white glyphs,
+        // still sized and darkened by distance, and it casts a shadow on the green room.
+        void ApplyAscii(GameObject go)
         {
-            if (prefab == null)
-                return null;
-            foreach (var renderer in prefab.GetComponentsInChildren<Renderer>(true))
-            {
-                var material = renderer.sharedMaterial;
-                if (material == null || material.shader == null)
-                    continue;
-                if (material.shader.name.IndexOf("Ascii", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                    continue;
-                return material;
-            }
-            return null;
-        }
-
-        void ApplyStone(GameObject go)
-        {
-            if (m_Stone == null)
+            if (m_Ascii == null)
                 return;
+            m_Block.Clear();
+            m_Block.SetFloat(k_Force, 0f);
+            m_Block.SetFloat(k_Normal, 1f);
+            m_Block.SetFloat(k_Volume, 0f);
+            m_Block.SetFloat(k_Figure, 1f);
             foreach (var renderer in go.GetComponentsInChildren<Renderer>(true))
-                renderer.sharedMaterial = m_Stone;
+            {
+                renderer.sharedMaterial = m_Ascii;
+                renderer.SetPropertyBlock(m_Block);
+            }
         }
 
         public void SetInside(bool inside)
@@ -81,7 +79,7 @@ namespace CardboardXR.Demos.Ascii
                 var go = Instantiate(m_Prefab, position, Quaternion.identity, transform);
                 go.name = $"Weeping Angel {i + 1}";
                 go.SetActive(true);
-                ApplyStone(go);
+                ApplyAscii(go);
                 var angel = go.GetComponent<WeepingAngel>();
                 if (angel == null)
                     angel = go.AddComponent<WeepingAngel>();

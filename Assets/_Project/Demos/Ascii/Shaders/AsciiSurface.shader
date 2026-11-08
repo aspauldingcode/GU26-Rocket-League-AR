@@ -5,6 +5,9 @@ Shader "CardboardXR/Demos/AsciiSurface"
         _RoomColor ("Room", Color) = (0, 1, 0, 1)
         _FurnitureColor ("Furniture", Color) = (1, 0.92, 0, 1)
         _ForceFurniture ("Force Furniture", Float) = 0
+        _UseMeshNormal ("Use Mesh Normal", Float) = 0
+        _Volume ("Volume Classify", Float) = 0
+        _Figure ("Figure", Float) = 0
         _Extrude ("Vertex Extrude (m)", Float) = 0.01
     }
 

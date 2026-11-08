@@ -7,8 +7,8 @@ using UnityEngine.Rendering.Universal;
 namespace CardboardXR.Demos.Ascii
 {
     // Full-screen terminal pass. Off unless AsciiTerminal.Active, so the rest of the app is untouched.
-    // Replaces the pure green and yellow shade pixels with glyphs. The door, angels, hands and
-    // passthrough are not those hues, so they stay as they are.
+    // Replaces the green room mask and the HDR-white angel mask with screen-space glyphs.
+    // Tile size, density and brightness follow eye depth. The door, hands and passthrough stay.
     public class AsciiTerminalFeature : ScriptableRendererFeature
     {
         [SerializeField] Material m_Material;

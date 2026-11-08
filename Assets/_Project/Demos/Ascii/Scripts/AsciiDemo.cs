@@ -9,7 +9,8 @@ namespace CardboardXR.Demos.Ascii
 {
     // Place a glyph gate on the floor. Outside: normal passthrough, and the doorway peeks at a
     // terminal rendering of the other side. Inside: passthrough off, the room is that same
-    // screen-space terminal. Raised surfaces (tables, seats) are yellow. Logs [Ascii].
+    // screen-space terminal. Character size, density and brightness show distance. The room is
+    // green; weeping angels are HDR white. Logs [Ascii].
     public class AsciiDemo : Demo
     {
         [SerializeField] GameObject m_PortalPrefab;
@@ -57,7 +58,7 @@ namespace CardboardXR.Demos.Ascii
             m_Meshes.SetActive(false);
 
             m_Angels = gameObject.AddComponent<AsciiAngels>();
-            m_Angels.Configure(m_AngelPrefab, core.Head);
+            m_Angels.Configure(m_AngelPrefab, core.Head, m_AsciiMaterial);
 
             m_Audio = gameObject.AddComponent<AudioSource>();
             m_Audio.playOnAwake = false;

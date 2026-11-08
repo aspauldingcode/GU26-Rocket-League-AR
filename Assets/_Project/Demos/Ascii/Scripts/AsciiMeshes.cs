@@ -8,9 +8,16 @@ namespace CardboardXR.Demos.Ascii
     // Harmless no-op when the mesh subsystem never produces geometry. Logs [Ascii].
     public class AsciiMeshes : MonoBehaviour
     {
+        static readonly int k_Force = Shader.PropertyToID("_ForceFurniture");
+        static readonly int k_Normal = Shader.PropertyToID("_UseMeshNormal");
+        static readonly int k_Volume = Shader.PropertyToID("_Volume");
+        static readonly int k_Figure = Shader.PropertyToID("_Figure");
+        static readonly int k_Floor = Shader.PropertyToID("_AsciiFloorY");
+
         Material m_Material;
         ARMeshManager m_Meshes;
         MeshFilter m_PrefabFilter;
+        readonly MaterialPropertyBlock m_Block = new();
 
         public void Configure(Material asciiMaterial, Transform origin)
         {
@@ -74,6 +81,16 @@ namespace CardboardXR.Demos.Ascii
                     continue;
                 if (renderer.sharedMaterial != m_Material)
                     renderer.sharedMaterial = m_Material;
+                var bounds = renderer.bounds;
+                var floorY = Shader.GetGlobalFloat(k_Floor);
+                var furniture = AsciiFurniture.MeshChunkIsFurniture(bounds.size, bounds.min.y, floorY);
+                m_Block.Clear();
+                // A chair or table chunk is marked so its sides stay in the scan. Color stays green.
+                m_Block.SetFloat(k_Force, furniture ? 1f : 0f);
+                m_Block.SetFloat(k_Normal, 1f);
+                m_Block.SetFloat(k_Volume, 0f);
+                m_Block.SetFloat(k_Figure, 0f);
+                renderer.SetPropertyBlock(m_Block);
                 if (!renderer.enabled)
                     renderer.enabled = true;
             }

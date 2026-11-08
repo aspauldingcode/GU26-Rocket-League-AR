@@ -5,17 +5,23 @@ using UnityEngine.XR.ARSubsystems;
 
 namespace CardboardXR.Demos.Ascii
 {
-    // While the gate is up, tracks the floor height the terminal shader uses to paint raised
-    // tops yellow. Inside the gate, covers each plane with that shade material. The glyphs
-    // themselves are the screen-space terminal pass, not a texture on the plane. Logs [Ascii].
+    // While the gate is up, tracks the floor so furniture prisms reach it. Inside the gate, covers
+    // each plane with the green shade mask. Glyphs and depth brightness are the terminal pass,
+    // not a texture on the plane. Logs [Ascii].
     public class AsciiSurfaces : MonoBehaviour
     {
         static readonly int k_Floor = Shader.PropertyToID("_AsciiFloorY");
         static readonly int k_Force = Shader.PropertyToID("_ForceFurniture");
+        static readonly int k_Normal = Shader.PropertyToID("_UseMeshNormal");
+        static readonly int k_Volume = Shader.PropertyToID("_Volume");
+        static readonly int k_Figure = Shader.PropertyToID("_Figure");
+        const float k_BackThickness = 0.08f;
 
         Material m_Material;
         ARPlaneManager m_Planes;
         readonly Dictionary<TrackableId, MeshFilter> m_Overlays = new();
+        readonly Dictionary<TrackableId, Mesh> m_Prisms = new();
+        readonly Dictionary<TrackableId, Vector4> m_PrismKey = new();
         readonly Dictionary<TrackableId, MeshRenderer> m_Hidden = new();
         readonly HashSet<TrackableId> m_Seen = new();
         readonly List<TrackableId> m_Stale = new();
@@ -85,7 +91,7 @@ namespace CardboardXR.Demos.Ascii
                     obstacles++;
             }
             m_LoggedFurniture = true;
-            Debug.Log($"[Ascii] Floor at {floorY:F2} m, {obstacles} furniture surfaces in yellow");
+            Debug.Log($"[Ascii] Floor at {floorY:F2} m, {obstacles} furniture surfaces");
         }
 
         void SyncOverlays()
@@ -106,16 +112,24 @@ namespace CardboardXR.Demos.Ascii
                     overlay = CreateOverlay(plane);
                     m_Overlays[plane.trackableId] = overlay;
                 }
-                if (overlay.sharedMesh != source.sharedMesh)
+                var floorY = Shader.GetGlobalFloat(k_Floor);
+                var obstacle = AsciiFurniture.IsObstacle(plane.alignment, plane.classification,
+                    plane.transform.position.y, floorY, plane.size);
+                if (obstacle)
+                    FitPrism(plane, overlay, floorY);
+                else if (overlay.sharedMesh != source.sharedMesh)
+                {
+                    ReleasePrism(plane.trackableId);
                     overlay.sharedMesh = source.sharedMesh;
+                }
                 var painted = overlay.GetComponent<MeshRenderer>();
                 if (painted != null)
                 {
-                    var floorY = Shader.GetGlobalFloat(k_Floor);
-                    var obstacle = AsciiFurniture.IsObstacle(plane.alignment, plane.classification,
-                        plane.transform.position.y, floorY, plane.size);
                     m_Block.Clear();
                     m_Block.SetFloat(k_Force, obstacle ? 1f : 0f);
+                    m_Block.SetFloat(k_Normal, obstacle ? 1f : 0f);
+                    m_Block.SetFloat(k_Volume, 0f);
+                    m_Block.SetFloat(k_Figure, 0f);
                     painted.SetPropertyBlock(m_Block);
                 }
                 // The plane's own grid is transparent and draws over everything. Up close, with
@@ -139,8 +153,43 @@ namespace CardboardXR.Demos.Ascii
                 if (m_Overlays.TryGetValue(id, out var overlay) && overlay != null)
                     Destroy(overlay.gameObject);
                 m_Overlays.Remove(id);
+                ReleasePrism(id);
                 RestoreGrid(id);
             }
+        }
+
+        // A detected top becomes a solid down to the floor (table sides, the body under a seat).
+        // A short vertical plane becomes a thin slab, so a chair back has thickness.
+        void FitPrism(ARPlane plane, MeshFilter overlay, float floorY)
+        {
+            var boundary = plane.boundary;
+            if (boundary.Length < 3)
+                return;
+            var horizontal = plane.alignment == PlaneAlignment.HorizontalUp;
+            var drop = horizontal ? AsciiFurniture.PrismDrop(plane.transform.position.y, floorY) : k_BackThickness;
+            var key = new Vector4(plane.size.x, plane.size.y, drop, boundary.Length);
+            if (m_PrismKey.TryGetValue(plane.trackableId, out var previous) && previous == key && overlay.sharedMesh != null)
+                return;
+            var points = new Vector2[boundary.Length];
+            for (var i = 0; i < boundary.Length; i++)
+                points[i] = boundary[i];
+            var top = horizontal ? 0.01f : k_BackThickness * 0.5f;
+            var bottom = horizontal ? -drop : -k_BackThickness * 0.5f;
+            var mesh = AsciiFurniture.BuildPrism(points, top, bottom);
+            if (mesh == null)
+                return;
+            ReleasePrism(plane.trackableId);
+            m_Prisms[plane.trackableId] = mesh;
+            m_PrismKey[plane.trackableId] = key;
+            overlay.sharedMesh = mesh;
+        }
+
+        void ReleasePrism(TrackableId id)
+        {
+            if (m_Prisms.TryGetValue(id, out var mesh) && mesh != null)
+                Destroy(mesh);
+            m_Prisms.Remove(id);
+            m_PrismKey.Remove(id);
         }
 
         void RestoreGrid(TrackableId id)
@@ -172,6 +221,13 @@ namespace CardboardXR.Demos.Ascii
                     Destroy(pair.Value.gameObject);
             }
             m_Overlays.Clear();
+            foreach (var pair in m_Prisms)
+            {
+                if (pair.Value != null)
+                    Destroy(pair.Value);
+            }
+            m_Prisms.Clear();
+            m_PrismKey.Clear();
             foreach (var pair in m_Hidden)
             {
                 if (pair.Value != null)

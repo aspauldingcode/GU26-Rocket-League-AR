@@ -23,5 +23,47 @@ namespace CardboardXR.Demos.Ascii
 
         public static char BrightnessToChar(float luminance01) =>
             Ramp[BrightnessToIndex(luminance01, Ramp.Length)];
+
+        // Phosphor brightness from eye depth in meters. The terminal shader uses this same curve.
+        // Arm's length stays bright; a few meters back is clearly dimmer; the far wall stays visible.
+        public static float DepthBrightness(float eyeDepthMeters)
+        {
+            var d = Mathf.Max(0f, eyeDepthMeters);
+            var falloff = 1f / (1f + d * d * 0.55f);
+            return Mathf.Lerp(0.08f, 1f, falloff);
+        }
+
+        // Screen-pixel scale of one character. Nested powers of two so a near tile lines up with
+        // the far grid. The terminal shader uses the same steps. 4 is arm's length, 1 is across the room.
+        public static int CellScale(float eyeDepthMeters)
+        {
+            var d = Mathf.Max(0f, eyeDepthMeters);
+            if (d < 1.05f)
+                return 4;
+            if (d < 2.6f)
+                return 2;
+            return 1;
+        }
+
+        public static Vector2 CellSize(float eyeDepthMeters)
+        {
+            var scale = CellScale(eyeDepthMeters);
+            return new Vector2(8f * scale, 12f * scale);
+        }
+
+        // Depth picks the glyph band. Surface lighting only moves inside that band, so a dark
+        // nearby surface stays denser than a lit one across the room.
+        public static float GlyphPick(float form01, float depthBrightness)
+        {
+            var form = Mathf.Clamp01(form01);
+            var depth = Mathf.Clamp01(depthBrightness);
+            var low = Mathf.Lerp(0f, 0.72f, depth);
+            var high = Mathf.Lerp(0.12f, 1f, depth);
+            return Mathf.Lerp(low, high, form);
+        }
+
+        // A cast or self shadow drops the character toward the sparse end of the ramp.
+        public static float ShadowedPick(float pick, float shadow01) =>
+            Mathf.Lerp(pick, pick * 0.2f, Mathf.Clamp01(shadow01));
     }
 }
