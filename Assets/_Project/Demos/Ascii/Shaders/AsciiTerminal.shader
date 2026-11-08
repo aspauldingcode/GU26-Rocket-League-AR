@@ -183,15 +183,6 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
                 float2 uv = input.texcoord;
-                // No scene depth here (nothing rendered): true black, not glyphs or passthrough.
-                float rawDepth = SampleSceneDepth(uv);
-#if UNITY_REVERSED_Z
-                if (rawDepth <= 1e-5)
-#else
-                if (rawDepth >= 0.99999)
-#endif
-                    return half4(0.0, 0.0, 0.0, 1.0);
-
                 float2 size = max(_BlitTexture_TexelSize.zw, float2(1.0, 1.0));
                 float2 pixel = uv * size;
 
@@ -205,7 +196,7 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 half3 here = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, uv, 0).rgb;
                 half3 color;
                 bool drawn = false;
-                // Nothing drawn here: true black, not the clear color.
+                // No scene depth (nothing rendered): true black, not the clear color.
                 if (empty)
                     color = 0;
                 else if (AsciiWindow(here))
