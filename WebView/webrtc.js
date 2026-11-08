@@ -207,9 +207,11 @@
         resolve(window.Peer);
         return;
       }
+      // Same-origin first: Safari content blockers often kill unpkg/jsdelivr.
       var urls = [
-        "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js",
+        "peerjs.min.js?v=1.5.4",
         "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js",
+        "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js",
       ];
       var i = 0;
       function tryNext() {
@@ -228,6 +230,16 @@
       }
       tryNext();
     });
+  }
+
+  // PeerJS may deliver a string, ArrayBuffer, or Uint8Array depending on serialization.
+  function asText(data) {
+    if (typeof data === "string") return data;
+    if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
+    if (data && data.buffer instanceof ArrayBuffer) {
+      return new TextDecoder().decode(new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength));
+    }
+    return null;
   }
 
   // ---- Viewer: the laptop, an external display for the phone's mono view. ----
@@ -296,7 +308,15 @@
     }
 
     function onData(data) {
-      var frame = assembler.push(data);
+      var text = asText(data);
+      if (!text) return;
+      // Host hello: flip to the stage immediately; frames paint when they arrive.
+      if (text === "H") {
+        lastFrameAt = Date.now();
+        goLive();
+        return;
+      }
+      var frame = assembler.push(text);
       if (!frame) return;
       lastFrameAt = Date.now();
       window.__castFrames = (window.__castFrames || 0) + 1;
@@ -480,7 +500,8 @@
         return;
       }
       closeConn();
-      var c = peer.connect(viewerPeerId(code), { serialization: "raw", reliable: true });
+      // PeerJS 1.5.4 ships raw/json/binary serializers — "raw" sends strings unchanged.
+      var c = peer.connect(viewerPeerId(code), { reliable: true, serialization: "raw" });
       if (!c) {
         scheduleDial("could not dial the website, retrying");
         return;
@@ -498,6 +519,8 @@
         clearTimeout(openGuard);
         delay = RETRY_START_MS;
         setStatus("streaming to room " + code);
+        // Kick the viewer out of "Connecting…" even before the first Unity JPEG lands.
+        try { c.send("H"); } catch (e) {}
       });
       c.on("close", function () {
         if (conn !== c || stopped) return;
@@ -546,8 +569,10 @@
       pushFrame: function (dataUrl) {
         var c = conn;
         if (stopped || !dataUrl || !c || !c.open) return;
+        // Only skip when the WebRTC buffer is actually full. PeerJS bufferSize > 0 while a
+        // multi-chunk JPEG is still flushing, which used to drop every frame after the first.
         var channel = c.dataChannel;
-        if ((channel && channel.bufferedAmount > MAX_BUFFERED_BYTES) || c.bufferSize > 0) {
+        if (channel && channel.bufferedAmount > MAX_BUFFERED_BYTES) {
           dropped++;
           return;
         }
