@@ -7,9 +7,9 @@ using UnityEngine.XR.ARSubsystems;
 
 namespace CardboardXR.Demos.Ascii
 {
-    // Place a glyph gate on the floor, walk through into an ASCII remapping of your room's surfaces,
-    // walk back to return to passthrough. Inside the gate passthrough turns off so stereo and the
-    // hand skeleton come back; the camera still feeds glyph color. Logs [Ascii].
+    // Place a glyph gate on the floor. Outside: normal passthrough, and the doorway peeks at a
+    // terminal rendering of the other side. Inside: passthrough off, the room is that same
+    // screen-space terminal. Raised surfaces (tables, seats) are yellow. Logs [Ascii].
     public class AsciiDemo : Demo
     {
         [SerializeField] GameObject m_PortalPrefab;
@@ -19,6 +19,7 @@ namespace CardboardXR.Demos.Ascii
         CoreServices m_Core;
         AsciiWorld m_Portal;
         AsciiSurfaces m_Surfaces;
+        AsciiMeshes m_Meshes;
         AsciiAngels m_Angels;
         RectTransform m_Panel;
         TMP_Text m_Hint;
@@ -28,7 +29,6 @@ namespace CardboardXR.Demos.Ascii
         PlaneDetectionMode? m_PreviousDetection;
         bool m_HadPassthrough;
         bool m_InsideWorld;
-        bool m_Capturing;
 
         public override void OnDemoEnter(CoreServices core)
         {
@@ -37,7 +37,6 @@ namespace CardboardXR.Demos.Ascii
             core.Placer.Placed += OnPlaced;
 
             m_Surfaces = core.Boundary.gameObject.AddComponent<AsciiSurfaces>();
-            // Unity's fake null defeats ??, so each lookup is checked explicitly.
             var planes = core.Boundary.GetComponent<ARPlaneManager>();
             if (planes == null)
                 planes = core.Boundary.GetComponentInChildren<ARPlaneManager>(true);
@@ -47,10 +46,15 @@ namespace CardboardXR.Demos.Ascii
                 Debug.LogWarning("[Ascii] No ARPlaneManager: room surfaces can't be remapped");
             else
                 FindWalls(planes, core.Boundary);
-            m_Surfaces.Configure(m_AsciiMaterial, planes, core.Passthrough);
-            // Glyph color keeps reading the camera while the display is off inside the gate.
-            core.Passthrough.RetainCapture();
-            m_Capturing = true;
+            m_Surfaces.Configure(m_AsciiMaterial, planes);
+            // Keep finding floors, tables, seats and walls after the lobby scan ends.
+            core.Boundary.HoldDetection = true;
+            core.Boundary.ScanRoom();
+
+            m_Meshes = gameObject.AddComponent<AsciiMeshes>();
+            m_Meshes.Configure(m_AsciiMaterial, core.Boundary != null ? core.Boundary.transform : null);
+            // Meshing stays warm but overlays only draw while inside.
+            m_Meshes.SetActive(false);
 
             m_Angels = gameObject.AddComponent<AsciiAngels>();
             m_Angels.Configure(m_AngelPrefab, core.Head);
@@ -69,11 +73,18 @@ namespace CardboardXR.Demos.Ascii
             if (m_Portal != null)
                 m_Portal.Crossed -= OnCrossed;
             SetInsideWorld(false);
+            AsciiTerminal.Active = false;
             if (m_Surfaces != null)
             {
-                m_Surfaces.SetGate(null);
+                m_Surfaces.SetLive(false);
                 Destroy(m_Surfaces);
                 m_Surfaces = null;
+            }
+            if (m_Meshes != null)
+            {
+                m_Meshes.SetActive(false);
+                Destroy(m_Meshes);
+                m_Meshes = null;
             }
             if (m_Angels != null)
             {
@@ -81,11 +92,7 @@ namespace CardboardXR.Demos.Ascii
                 Destroy(m_Angels);
                 m_Angels = null;
             }
-            if (m_Capturing)
-            {
-                core.Passthrough.ReleaseCapture();
-                m_Capturing = false;
-            }
+            core.Boundary.HoldDetection = false;
             if (m_Planes != null && m_PreviousDetection.HasValue)
                 m_Planes.requestedDetectionMode = m_PreviousDetection.Value;
             m_Planes = null;
@@ -93,8 +100,6 @@ namespace CardboardXR.Demos.Ascii
             Debug.Log("[Ascii] Leaving");
         }
 
-        // The room's planes are horizontal only by default; walls need vertical detection too, and
-        // a room scan to find them if the one before only looked for horizontal surfaces.
         void FindWalls(ARPlaneManager planes, RoomBoundary boundary)
         {
             m_Planes = planes;
@@ -115,8 +120,8 @@ namespace CardboardXR.Demos.Ascii
             m_Portal = portal;
             m_Portal.Crossed += OnCrossed;
             m_Core.Placer.ObjectPrefab = null;
-            // Remap as soon as the gate is up so the doorway peeks at real ASCII surfaces.
-            m_Surfaces?.SetGate(portal);
+            AsciiTerminal.Active = true;
+            m_Surfaces?.SetLive(true);
             var distance = Vector3.Distance(m_Core.Head.position, placed.transform.position);
             Debug.Log($"[Ascii] Gate opened {distance:F1} m away");
             m_Audio.PlayOneShot(m_Whoosh, 0.4f);
@@ -127,6 +132,8 @@ namespace CardboardXR.Demos.Ascii
         {
             m_Audio.PlayOneShot(m_Whoosh, 0.7f);
             SetInsideWorld(inside);
+            m_Surfaces?.SetDrawn(inside);
+            m_Meshes?.SetActive(inside);
             m_Angels?.SetInside(inside);
             UpdateHint();
         }
@@ -143,7 +150,6 @@ namespace CardboardXR.Demos.Ascii
                 m_HadPassthrough = m_Core.Passthrough.IsOn;
                 if (m_HadPassthrough)
                     m_Core.Passthrough.Choose(false);
-                // Choose(false) unhides the checker environment; keep it dark in the ASCII void.
                 VirtualEnvironment.SetAllHidden(true);
                 Debug.Log("[Ascii] Passthrough off inside the gate (stereo + hand model)");
                 return;
@@ -163,8 +169,10 @@ namespace CardboardXR.Demos.Ascii
             var portal = m_Portal;
             portal.Crossed -= OnCrossed;
             m_Portal = null;
-            m_Surfaces?.SetGate(null);
+            AsciiTerminal.Active = false;
             SetInsideWorld(false);
+            m_Surfaces?.SetLive(false);
+            m_Meshes?.SetActive(false);
             m_Angels?.SetInside(false);
             m_Audio.PlayOneShot(m_Whoosh, 0.3f);
             Debug.Log("[Ascii] Closing the gate to move it");
@@ -187,7 +195,7 @@ namespace CardboardXR.Demos.Ascii
             if (m_Portal == null)
                 m_Hint.text = "Look at the floor and pinch to raise the glyph gate.\nNo highlight? Look down at the floor for a moment.";
             else if (!m_Portal.IsInside)
-                m_Hint.text = "Your room's surfaces are ASCII through the gate.\nWalk through to step inside. Unplug first if it's on a cable.";
+                m_Hint.text = "Passthrough room outside. Green ASCII through the gate.\nWalk through to step inside. Unplug first if it's on a cable.";
             else
                 m_Hint.text = "Don't blink. The angels only move when you look away.\nWalk back through the gate to leave.";
         }
@@ -214,7 +222,6 @@ namespace CardboardXR.Demos.Ascii
                 var noise = (float)(random.NextDouble() * 2.0 - 1.0);
                 var cutoff = Mathf.Lerp(0.03f, 0.3f, Mathf.Sin(t * Mathf.PI));
                 low += (noise - low) * cutoff;
-                // A touch of square-ish buzz for a terminal feel.
                 var buzz = Mathf.Sign(Mathf.Sin(t * 40f * Mathf.PI)) * 0.08f;
                 samples[i] = (low + buzz) * Mathf.Sin(t * Mathf.PI) * 1.5f;
             }

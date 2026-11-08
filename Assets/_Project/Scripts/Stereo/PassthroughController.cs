@@ -163,9 +163,12 @@ namespace CardboardXR.Stereo
             SetListening(on || m_CaptureUsers > 0);
 
             // Display only: capture can keep running with these off so stereo and the hand skeleton
-            // come back (HandJointsView hides while IsOn).
+            // come back (HandJointsView hides while IsOn). Match upstream: when the screen is off,
+            // the head must follow fusion again, not the AR camera's lagged pose.
             m_PoseDriver.enabled = on;
             m_Fusion.EyesAtCamera = on;
+            if (!on)
+                m_Fusion.FollowPose = null;
             if (m_Rig != null)
                 m_Rig.MonoEyes = on;
             // Shown once the first image has arrived.
@@ -397,6 +400,9 @@ namespace CardboardXR.Stereo
             var sixDof = m_Fusion.CurrentMode == HeadPoseFusion.Mode.SixDof;
             if (!m_On)
             {
+                // Capture-only must not leave the head locked to the AR camera (phone-mono path).
+                if (m_Fusion.FollowPose != null)
+                    m_Fusion.FollowPose = null;
                 if (m_ResumeWithSixDof && sixDof)
                 {
                     m_ResumeWithSixDof = false;

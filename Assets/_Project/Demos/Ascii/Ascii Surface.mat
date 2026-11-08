@@ -22,20 +22,13 @@ Material:
   m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
-    m_TexEnvs:
-    - _GlyphAtlas:
-        m_Texture: {fileID: 2800000, guid: 433d5a8d492242a5bbd189e4afc36acf, type: 3}
-        m_Scale: {x: 1, y: 1}
-        m_Offset: {x: 0, y: 0}
+    m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _BgFromCamera: 0.12
-    - _CellSize: 0.08
-    - _ColorBoost: 1.5
-    - _Extrude: 0.004
-    - _GlyphCount: 70
+    - _Extrude: 0.01
+    - _ForceFurniture: 0
     m_Colors:
-    - _BgColor: {r: 0.01, g: 0.01, b: 0.01, a: 1}
-    - _Color: {r: 0.25, g: 1, b: 0.45, a: 1}
+    - _FurnitureColor: {r: 1, g: 0.78, b: 0.08, a: 1}
+    - _RoomColor: {r: 0.15, g: 0.85, b: 0.32, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

@@ -10,17 +10,46 @@ namespace CardboardXR.Demos.Ascii
     {
         const int k_Count = 3;
         const float k_SpawnDistance = 9f;
-        const float k_MinSpeed = 1.6f;
-        const float k_MaxSpeed = 2.8f;
+        // Slow enough that looking away briefly isn't an instant jump into your face.
+        const float k_MinSpeed = 0.28f;
+        const float k_MaxSpeed = 0.45f;
 
         GameObject m_Prefab;
         Transform m_Head;
+        Material m_Stone;
         readonly List<WeepingAngel> m_Angels = new();
 
         public void Configure(GameObject prefab, Transform head)
         {
             m_Prefab = prefab;
             m_Head = head;
+            m_Stone = StoneMaterial(prefab);
+        }
+
+        // The angel stays stone. Never the ASCII glyph shader, which turns the statue into a
+        // mirror of the room when you walk up to it.
+        static Material StoneMaterial(GameObject prefab)
+        {
+            if (prefab == null)
+                return null;
+            foreach (var renderer in prefab.GetComponentsInChildren<Renderer>(true))
+            {
+                var material = renderer.sharedMaterial;
+                if (material == null || material.shader == null)
+                    continue;
+                if (material.shader.name.IndexOf("Ascii", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    continue;
+                return material;
+            }
+            return null;
+        }
+
+        void ApplyStone(GameObject go)
+        {
+            if (m_Stone == null)
+                return;
+            foreach (var renderer in go.GetComponentsInChildren<Renderer>(true))
+                renderer.sharedMaterial = m_Stone;
         }
 
         public void SetInside(bool inside)
@@ -52,6 +81,7 @@ namespace CardboardXR.Demos.Ascii
                 var go = Instantiate(m_Prefab, position, Quaternion.identity, transform);
                 go.name = $"Weeping Angel {i + 1}";
                 go.SetActive(true);
+                ApplyStone(go);
                 var angel = go.GetComponent<WeepingAngel>();
                 if (angel == null)
                     angel = go.AddComponent<WeepingAngel>();

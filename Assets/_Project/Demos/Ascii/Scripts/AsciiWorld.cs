@@ -4,9 +4,9 @@ using UnityEngine;
 
 namespace CardboardXR.Demos.Ascii
 {
-    // A glyph gate on the floor. Outside, a depth-mask box keeps the doorway as the only open
-    // view; inside, a mask in the frame shows the room through the gate behind them. Real AR
-    // planes are remapped by AsciiSurfaces while the gate is up. Crossing uses AsciiCrossing.
+    // Glyph gate on the floor. Outside: normal passthrough, depth-mask doorway peeks at a green
+    // ASCII "other side". Inside: real AR planes remap via AsciiSurfaces, passthrough is off.
+    // Crossing uses the portal World's local space (+z through the door), same as PortalWorld.
     // Logs [Ascii].
     public class AsciiWorld : MonoBehaviour
     {
@@ -21,14 +21,17 @@ namespace CardboardXR.Demos.Ascii
 
         [SerializeField] Material m_Glow;
         [SerializeField] Material m_Mask;
+        [SerializeField] Material m_Ascii;
 
         Transform m_World;
         Transform m_Frame;
+        GameObject m_Peek;
         GameObject m_OutsideMask;
         GameObject m_InsideMask;
-        Vector3 m_LastHeadWorld;
+        Vector3 m_LastHead;
         bool m_HasLastHead;
         MaterialPropertyBlock m_Block;
+        Material m_FrameMaterial;
         Coroutine m_Animating;
 
         public bool IsInside { get; private set; }
@@ -41,6 +44,7 @@ namespace CardboardXR.Demos.Ascii
             m_World = new GameObject("World").transform;
             m_World.SetParent(transform, false);
             m_World.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            BuildPeek();
             BuildMasks();
             SetInside(false, announce: false);
             m_Animating = StartCoroutine(Animate(k_RiseSeconds, BackOut, null));
@@ -88,38 +92,26 @@ namespace CardboardXR.Demos.Ascii
             var core = CoreServices.Instance;
             if (core == null || m_World == null)
                 return;
-            var headWorld = core.Head.position;
+            // World is yawed 180°, so +z runs through the door into the ASCII side — same space as
+            // PortalWorld.Crossing. Do not use the rising Frame (non-uniform scale breaks this).
+            var head = m_World.InverseTransformPoint(core.Head.position);
             if (m_HasLastHead)
             {
-                var before = ToGateSpace(m_LastHeadWorld);
-                var head = ToGateSpace(headWorld);
-                if (Mathf.Abs(head.z) >= AsciiCrossing.PlaneClearance)
-                {
-                    var crossing = AsciiCrossing.Crossing(before, head, DoorWidth / 2f, DoorHeight);
-                    if (crossing > 0 && !IsInside)
-                        SetInside(true, announce: true);
-                    else if (crossing < 0 && IsInside)
-                        SetInside(false, announce: true);
-                    m_LastHeadWorld = headWorld;
-                }
+                var crossing = AsciiCrossing.Crossing(m_LastHead, head, DoorWidth / 2f, DoorHeight);
+                if (crossing > 0 && !IsInside)
+                    SetInside(true, announce: true);
+                else if (crossing < 0 && IsInside)
+                    SetInside(false, announce: true);
             }
-            else
-            {
-                m_LastHeadWorld = headWorld;
-                m_HasLastHead = true;
-            }
-        }
-
-        Vector3 ToGateSpace(Vector3 worldPosition)
-        {
-            var point = m_Frame.InverseTransformPoint(worldPosition);
-            point.z = -point.z;
-            return point;
+            m_LastHead = head;
+            m_HasLastHead = true;
         }
 
         void SetInside(bool inside, bool announce)
         {
             IsInside = inside;
+            if (m_Peek != null)
+                m_Peek.SetActive(!inside);
             m_OutsideMask.SetActive(!inside);
             m_InsideMask.SetActive(inside);
             if (!announce)
@@ -128,18 +120,94 @@ namespace CardboardXR.Demos.Ascii
             Crossed?.Invoke(inside);
         }
 
-        // The door frame model, baked into the prefab under "Frame" by AsciiSetup and fitted so its
-        // opening is the doorway. It rises and sinks with the gate (Animate scales Frame).
+        // A real casing: jambs, lintel, and sill. The imported frame mesh was a thin CAD profile
+        // skinned with the ASCII shader, which read as a mirror up close. This stays on m_Glow.
         void BuildFrame()
         {
             m_Frame = transform.Find("Frame");
-            if (m_Frame != null)
-                return;
-            m_Frame = new GameObject("Frame").transform;
-            m_Frame.SetParent(transform, false);
+            if (m_Frame == null)
+            {
+                m_Frame = new GameObject("Frame").transform;
+                m_Frame.SetParent(transform, false);
+            }
+            for (var i = m_Frame.childCount - 1; i >= 0; i--)
+            {
+                var child = m_Frame.GetChild(i).gameObject;
+                child.SetActive(false);
+                Destroy(child);
+            }
+
+            var wood = new Color(0.45f, 0.32f, 0.22f);
+            var frameMat = OpaqueFrame();
+            const float jamb = 0.11f;
+            const float depth = 0.16f;
+            var half = DoorWidth / 2f + jamb / 2f;
+            Casing("Left Jamb", frameMat, new Vector3(-half, DoorHeight / 2f, 0f), new Vector3(jamb, DoorHeight, depth), wood);
+            Casing("Right Jamb", frameMat, new Vector3(half, DoorHeight / 2f, 0f), new Vector3(jamb, DoorHeight, depth), wood);
+            Casing("Lintel", frameMat, new Vector3(0f, DoorHeight + jamb / 2f, 0f),
+                new Vector3(DoorWidth + jamb * 2f, jamb, depth), wood);
+            Casing("Sill", frameMat, new Vector3(0f, 0.025f, 0f), new Vector3(DoorWidth + jamb * 2f, 0.05f, depth * 1.15f), wood * 0.85f);
+            // A thinner stop set back in the opening, so the hole reads as a doorway.
+            const float stop = 0.035f;
+            var stopHalf = DoorWidth / 2f - stop / 2f;
+            Casing("Left Stop", frameMat, new Vector3(-stopHalf, DoorHeight / 2f, depth * 0.22f),
+                new Vector3(stop, DoorHeight - 0.05f, 0.04f), wood * 0.7f);
+            Casing("Right Stop", frameMat, new Vector3(stopHalf, DoorHeight / 2f, depth * 0.22f),
+                new Vector3(stop, DoorHeight - 0.05f, 0.04f), wood * 0.7f);
+            Casing("Head Stop", frameMat, new Vector3(0f, DoorHeight - stop / 2f, depth * 0.22f),
+                new Vector3(DoorWidth, stop, 0.04f), wood * 0.7f);
         }
 
-        // Depth masks only — real room meshes come from AsciiSurfaces while the gate is up.
+        // The shared glow material is additive. A door frame needs a solid casing, not a glass sheet.
+        Material OpaqueFrame()
+        {
+            if (m_Glow == null)
+                return null;
+            m_FrameMaterial = new Material(m_Glow) { name = "Door Frame" };
+            m_FrameMaterial.SetFloat("_Surface", 0f);
+            m_FrameMaterial.SetFloat("_Blend", 0f);
+            m_FrameMaterial.SetFloat("_ZWrite", 1f);
+            m_FrameMaterial.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+            m_FrameMaterial.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
+            m_FrameMaterial.SetOverrideTag("RenderType", "Opaque");
+            m_FrameMaterial.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            m_FrameMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
+            return m_FrameMaterial;
+        }
+
+        void OnDestroy()
+        {
+            if (m_FrameMaterial != null)
+                Destroy(m_FrameMaterial);
+        }
+
+        void Casing(string name, Material material, Vector3 position, Vector3 size, Color color) =>
+            Primitive(PrimitiveType.Cube, name, m_Frame, position, size, Quaternion.identity, material != null ? material : m_Glow, color);
+
+        // Green ASCII slabs parented under the depth-masked World so the doorway peeks at phosphor
+        // green — not the real room, and not camera-tinted glyphs. Hidden once you're inside.
+        // The ASCII shader treats local +Y as the surface normal, so each slab is rotated to face in.
+        void BuildPeek()
+        {
+            m_Peek = new GameObject("Peek");
+            m_Peek.transform.SetParent(m_World, false);
+            var peek = m_Peek.transform;
+            const float half = 12f;
+            const float wallH = 4f;
+            const float depth = 14f;
+            // Thin in local Y; rotate so +Y is the inward-facing normal, then stretch in local XZ.
+            Slab("Floor", peek, new Vector3(0f, 0.002f, depth / 2f), new Vector3(half * 2f, 0.01f, depth),
+                Quaternion.identity);
+            Slab("Ceiling", peek, new Vector3(0f, wallH, depth / 2f), new Vector3(half * 2f, 0.01f, depth),
+                Quaternion.Euler(180f, 0f, 0f));
+            Slab("Left Wall", peek, new Vector3(-half, wallH / 2f, depth / 2f), new Vector3(wallH, 0.01f, depth),
+                Quaternion.Euler(0f, 0f, -90f));
+            Slab("Right Wall", peek, new Vector3(half, wallH / 2f, depth / 2f), new Vector3(wallH, 0.01f, depth),
+                Quaternion.Euler(0f, 0f, 90f));
+            Slab("Back Wall", peek, new Vector3(0f, wallH / 2f, depth), new Vector3(half * 2f, 0.01f, wallH),
+                Quaternion.Euler(90f, 0f, 0f));
+        }
+
         void BuildMasks()
         {
             m_OutsideMask = BuildOutsideMask();
@@ -175,8 +243,8 @@ namespace CardboardXR.Demos.Ascii
             return mask.gameObject;
         }
 
-        Transform Box(string name, Transform parent, Vector3 position, Vector3 size, Color color) =>
-            Primitive(PrimitiveType.Cube, name, parent, position, size, Quaternion.identity, m_Glow, color);
+        Transform Slab(string name, Transform parent, Vector3 position, Vector3 size, Quaternion rotation) =>
+            Primitive(PrimitiveType.Cube, name, parent, position, size, rotation, m_Ascii != null ? m_Ascii : m_Glow, null);
 
         Transform Quad(string name, Transform parent, Vector3 position, Vector2 size, Quaternion rotation, Material material) =>
             Primitive(PrimitiveType.Quad, name, parent, position, new Vector3(size.x, size.y, 1f), rotation, material, null);

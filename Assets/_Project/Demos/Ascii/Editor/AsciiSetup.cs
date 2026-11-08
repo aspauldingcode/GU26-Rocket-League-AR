@@ -16,15 +16,7 @@ namespace ProjectBootstrap
         const string AngelPrefabPath = "Assets/_Project/Demos/Ascii/Weeping Angel.prefab";
         // The source OBJ is ~2.85 m tall; this brings it to roughly human height.
         const float AngelScale = 0.7f;
-        const string FrameModelPath = "Assets/_Project/Demos/Ascii/Models/DoorFrame.obj";
         const string GatePrefabPath = "Assets/_Project/Demos/Ascii/Ascii Gate.prefab";
-        // The door frame OBJ's opening, in its own units (meters, whatever its header says): posts'
-        // inner faces at x = ±0.4629, floor at y = -1.0085, lintel's underside at y = 0.9084, and
-        // 0.2246 deep from z = 0. It's fitted so the opening is exactly the gate's doorway.
-        const float FrameInnerWidth = 2f * 0.4628785f;
-        const float FrameInnerBottom = -1.0085495f;
-        const float FrameInnerTop = 0.9084095f;
-        const float FrameDepth = 0.2246280f;
 
         public override string Name => "Ascii";
         public override int Order => 60;
@@ -52,29 +44,38 @@ namespace ProjectBootstrap
             {
                 name = "Ascii Surface",
             }, $"{folder}/Ascii Surface.mat");
-            ascii.SetTexture("_GlyphAtlas", atlas);
-            ascii.SetFloat("_GlyphCount", AsciiGlyph.Ramp.Length);
-            ascii.SetColor("_Color", new Color(0.25f, 1f, 0.45f, 1f));
-            ascii.SetColor("_BgColor", new Color(0.01f, 0.01f, 0.01f, 1f));
-            ascii.SetFloat("_CellSize", 0.08f);
-            ascii.SetFloat("_Extrude", 0.004f);
-            ascii.SetFloat("_ColorBoost", 1.5f);
-            ascii.SetFloat("_BgFromCamera", 0.12f);
+            ascii.SetColor("_RoomColor", new Color(0.15f, 0.85f, 0.32f, 1f));
+            ascii.SetColor("_FurnitureColor", new Color(1f, 0.78f, 0.08f, 1f));
+            ascii.SetFloat("_ForceFurniture", 0f);
+            ascii.SetFloat("_Extrude", 0.01f);
             EditorUtility.SetDirty(ascii);
+
+            var terminalShader = AssetDatabase.LoadAssetAtPath<Shader>("Assets/_Project/Demos/Ascii/Shaders/AsciiTerminal.shader");
+            var terminal = StereoBuilder.SaveAsset(new Material(terminalShader) { name = "Ascii Terminal" },
+                $"{folder}/Ascii Terminal.mat");
+            terminal.SetTexture("_GlyphAtlas", atlas);
+            terminal.SetFloat("_GlyphCount", AsciiGlyph.Ramp.Length);
+            terminal.SetVector("_Cell", new Vector4(12f, 20f, 0f, 0f));
+            terminal.SetColor("_Ink", new Color(0.25f, 1f, 0.45f, 1f));
+            terminal.SetColor("_Paper", new Color(0.01f, 0.04f, 0.02f, 1f));
+            terminal.SetColor("_Warn", new Color(1f, 0.86f, 0.15f, 1f));
+            terminal.SetColor("_WarnPaper", new Color(0.12f, 0.07f, 0.01f, 1f));
+            EditorUtility.SetDirty(terminal);
 
             var mask = StereoBuilder.SaveAsset(
                 new Material(AssetDatabase.LoadAssetAtPath<Shader>(DepthMaskShaderPath)) { name = "Ascii Depth Mask" },
                 $"{folder}/Depth Mask.mat");
 
-            var stone = StereoBuilder.CreateMaterial("Angel Stone", unlit, new Color(0.22f, 0.28f, 0.2f), null, 1f, folder);
-            var angel = BuildAngelPrefab(folder, stone, ascii);
+            var stone = StereoBuilder.CreateMaterial("Angel Stone", unlit, new Color(0.55f, 0.52f, 0.48f), null, 1f, folder);
+            var angel = BuildAngelPrefab(folder, stone);
 
             var portal = new GameObject("Ascii Gate").AddComponent<AsciiWorld>();
             var serializedPortal = new SerializedObject(portal);
             serializedPortal.FindProperty("m_Glow").objectReferenceValue = glow;
             serializedPortal.FindProperty("m_Mask").objectReferenceValue = mask;
+            serializedPortal.FindProperty("m_Ascii").objectReferenceValue = ascii;
             serializedPortal.ApplyModifiedPropertiesWithoutUndo();
-            AddDoorFrame(portal.transform, ascii);
+            AddDoorFrame(portal.transform);
             var prefab = PrefabUtility.SaveAsPrefabAsset(portal.gameObject, $"{folder}/Ascii Gate.prefab");
             Object.DestroyImmediate(portal.gameObject);
 
@@ -106,9 +107,8 @@ namespace ProjectBootstrap
                 var folder = "Assets/_Project/Demos/Ascii";
                 AssetDatabase.ImportAsset(AngelModelPath, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
                 var unlit = DemoAssets.Unlit;
-                var stone = StereoBuilder.CreateMaterial("Angel Stone", unlit, new Color(0.22f, 0.28f, 0.2f), null, 1f, folder);
-                var ascii = AssetDatabase.LoadAssetAtPath<Material>($"{folder}/Ascii Surface.mat");
-                var angel = BuildAngelPrefab(folder, stone, ascii);
+                var stone = StereoBuilder.CreateMaterial("Angel Stone", unlit, new Color(0.55f, 0.52f, 0.48f), null, 1f, folder);
+                var angel = BuildAngelPrefab(folder, stone);
                 WireAngelPrefab(angel);
                 AssetDatabase.SaveAssets();
                 Debug.Log($"[Ascii] Weeping angel prefab ready at {AngelPrefabPath}");
@@ -126,12 +126,10 @@ namespace ProjectBootstrap
         {
             try
             {
-                AssetDatabase.ImportAsset(FrameModelPath, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
-                var ascii = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Project/Demos/Ascii/Ascii Surface.mat");
                 var root = PrefabUtility.LoadPrefabContents(GatePrefabPath);
                 try
                 {
-                    AddDoorFrame(root.transform, ascii);
+                    AddDoorFrame(root.transform);
                     PrefabUtility.SaveAsPrefabAsset(root, GatePrefabPath);
                     var renderers = root.transform.Find("Frame").GetComponentsInChildren<Renderer>();
                     if (renderers.Length > 0)
@@ -157,41 +155,18 @@ namespace ProjectBootstrap
             }
         }
 
-        // "Frame" under the gate, which AsciiWorld animates, holding the model fitted to the doorway:
-        // centered on x, standing on the floor, and straddling the door plane in depth.
-        static void AddDoorFrame(Transform gate, Material skin)
+        // Empty "Frame" parent. AsciiWorld builds the casing at runtime from the glow material.
+        // The door OBJ was a thin CAD profile and was getting the ASCII shader.
+        static void AddDoorFrame(Transform gate)
         {
-            var model = AssetDatabase.LoadAssetAtPath<GameObject>(FrameModelPath);
-            if (model == null)
-                throw new System.IO.FileNotFoundException("Door frame OBJ missing at " + FrameModelPath);
-
             var old = gate.Find("Frame");
             if (old != null)
                 Object.DestroyImmediate(old.gameObject);
             var frame = new GameObject("Frame").transform;
             frame.SetParent(gate, false);
-
-            var instance = (GameObject)PrefabUtility.InstantiatePrefab(model);
-            instance.name = "Door Frame";
-            instance.transform.SetParent(frame, false);
-            var scale = new Vector3(AsciiWorld.DoorWidth / FrameInnerWidth,
-                AsciiWorld.DoorHeight / (FrameInnerTop - FrameInnerBottom), 1f);
-            instance.transform.localScale = scale;
-            instance.transform.localPosition = new Vector3(0f, -FrameInnerBottom * scale.y, -FrameDepth / 2f);
-            instance.transform.localRotation = Quaternion.identity;
-
-            foreach (var renderer in instance.GetComponentsInChildren<Renderer>(true))
-            {
-                if (skin != null)
-                    renderer.sharedMaterial = skin;
-                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                renderer.receiveShadows = false;
-            }
-            foreach (var collider in instance.GetComponentsInChildren<Collider>(true))
-                Object.DestroyImmediate(collider);
         }
 
-        static GameObject BuildAngelPrefab(string folder, Material stone, Material ascii)
+        static GameObject BuildAngelPrefab(string folder, Material stone)
         {
             var model = AssetDatabase.LoadAssetAtPath<GameObject>(AngelModelPath);
             if (model == null)
@@ -206,10 +181,9 @@ namespace ProjectBootstrap
             instance.transform.localRotation = Quaternion.identity;
             instance.transform.localScale = Vector3.one * AngelScale;
 
-            var skin = ascii != null ? ascii : stone;
             foreach (var renderer in instance.GetComponentsInChildren<Renderer>(true))
             {
-                renderer.sharedMaterial = skin;
+                renderer.sharedMaterial = stone;
                 renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
             }

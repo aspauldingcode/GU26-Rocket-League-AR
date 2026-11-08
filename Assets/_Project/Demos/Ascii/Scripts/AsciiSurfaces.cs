@@ -1,104 +1,91 @@
 using System.Collections.Generic;
-using CardboardXR.Stereo;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 
 namespace CardboardXR.Demos.Ascii
 {
-    // Covers every tracked AR plane (floor, walls, tables, ceiling) with the opaque ASCII material
-    // while the glyph gate is up. Each overlay is a child of its plane sharing the plane's mesh, so
-    // it follows the plane as ARCore refines it; the extrusion in the shader puts it in front of
-    // the plane's own grid. Each glyph cell takes its color and density from the passthrough camera
-    // image where the cell is in the room. Outside the gate only the far side of the gate's plane
-    // is drawn, which the portal's depth masks then show only through the doorway. Logs [Ascii].
+    // While the gate is up, tracks the floor height the terminal shader uses to paint raised
+    // tops yellow. Inside the gate, covers each plane with that shade material. The glyphs
+    // themselves are the screen-space terminal pass, not a texture on the plane. Logs [Ascii].
     public class AsciiSurfaces : MonoBehaviour
     {
-        static readonly int k_CameraTex = Shader.PropertyToID("_AsciiCameraTex");
-        static readonly int k_UseCamera = Shader.PropertyToID("_AsciiUseCamera");
-        static readonly int k_WorldToCamera = Shader.PropertyToID("_AsciiWorldToCamera");
-        static readonly int k_Frustum = Shader.PropertyToID("_AsciiFrustum");
-        static readonly int k_ClipPlane = Shader.PropertyToID("_AsciiClipPlane");
-        static readonly int k_Clip = Shader.PropertyToID("_AsciiClip");
+        static readonly int k_Floor = Shader.PropertyToID("_AsciiFloorY");
+        static readonly int k_Force = Shader.PropertyToID("_ForceFurniture");
 
         Material m_Material;
         ARPlaneManager m_Planes;
-        PassthroughController m_Passthrough;
-        AsciiWorld m_Gate;
         readonly Dictionary<TrackableId, MeshFilter> m_Overlays = new();
+        readonly Dictionary<TrackableId, MeshRenderer> m_Hidden = new();
         readonly HashSet<TrackableId> m_Seen = new();
         readonly List<TrackableId> m_Stale = new();
-        bool m_LoggedCamera;
+        readonly MaterialPropertyBlock m_Block = new();
+        bool m_Draw;
+        bool m_LoggedFurniture;
 
-        public void Configure(Material asciiMaterial, ARPlaneManager planes, PassthroughController passthrough)
+        public void Configure(Material asciiMaterial, ARPlaneManager planes)
         {
             m_Material = asciiMaterial;
             m_Planes = planes;
-            m_Passthrough = passthrough;
             enabled = false;
         }
 
-        // On with the gate that clips the view from outside; off with null.
-        public void SetGate(AsciiWorld gate)
+        // On for the whole time the gate is up, so the floor height stays current for the peek too.
+        public void SetLive(bool on)
         {
-            m_Gate = gate;
-            var on = gate != null && m_Planes != null && m_Material != null;
-            if (on == enabled)
-                return;
-            enabled = on;
-            if (on)
+            var want = on && m_Planes != null && m_Material != null;
+            if (!want)
             {
-                SyncOverlays();
-                Debug.Log($"[Ascii] ASCII surfaces on ({m_Overlays.Count} planes)");
-            }
-            else
-            {
+                m_Draw = false;
                 ClearOverlays();
-                Shader.SetGlobalFloat(k_UseCamera, 0f);
-                Shader.SetGlobalFloat(k_Clip, 0f);
-                Debug.Log("[Ascii] ASCII surfaces off");
+                Shader.SetGlobalFloat(k_Floor, -999f);
             }
+            enabled = want;
+        }
+
+        // Plane overlays only inside the gate. Outside, passthrough stays clear.
+        public void SetDrawn(bool on)
+        {
+            m_Draw = on && enabled;
+            if (!m_Draw)
+                ClearOverlays();
+            else
+                SyncOverlays();
         }
 
         void LateUpdate()
         {
-            SyncOverlays();
-            UpdateCamera();
-            UpdateClip();
+            UpdateFloor();
+            if (m_Draw)
+                SyncOverlays();
         }
 
-        void OnDestroy() => SetGate(null);
+        void OnDestroy() => SetLive(false);
 
-        void UpdateCamera()
+        void UpdateFloor()
         {
-            var image = m_Passthrough != null ? m_Passthrough.CameraImage : null;
-            if (image == null)
+            float? floor = null;
+            var obstacles = 0;
+            foreach (var plane in m_Planes.trackables)
             {
-                Shader.SetGlobalFloat(k_UseCamera, 0f);
-                return;
+                if (plane == null || plane.trackingState == TrackingState.None || plane.subsumedBy != null)
+                    continue;
+                var area = plane.size.x * plane.size.y;
+                floor = AsciiFurniture.FloorY(floor, plane.alignment, plane.classification, plane.transform.position.y, area);
             }
-            Shader.SetGlobalTexture(k_CameraTex, image);
-            Shader.SetGlobalMatrix(k_WorldToCamera, m_Passthrough.CameraTransform.worldToLocalMatrix);
-            Shader.SetGlobalVector(k_Frustum, m_Passthrough.ImageFrustum);
-            Shader.SetGlobalFloat(k_UseCamera, 1f);
-            if (m_LoggedCamera)
+            var floorY = floor ?? -999f;
+            Shader.SetGlobalFloat(k_Floor, floorY);
+            if (!m_Draw || m_LoggedFurniture || !floor.HasValue)
                 return;
-            m_LoggedCamera = true;
-            Debug.Log($"[Ascii] Coloring glyphs from the camera image ({image.width}x{image.height})");
-        }
-
-        // The ASCII side of the gate is its local -z (see AsciiWorld.ToGateSpace).
-        void UpdateClip()
-        {
-            if (m_Gate == null || m_Gate.IsInside)
+            foreach (var plane in m_Planes.trackables)
             {
-                Shader.SetGlobalFloat(k_Clip, 0f);
-                return;
+                if (plane == null || plane.subsumedBy != null)
+                    continue;
+                if (AsciiFurniture.IsObstacle(plane.alignment, plane.classification, plane.transform.position.y, floorY, plane.size))
+                    obstacles++;
             }
-            var gate = m_Gate.transform;
-            var normal = -gate.forward;
-            Shader.SetGlobalVector(k_ClipPlane, new Vector4(normal.x, normal.y, normal.z, -Vector3.Dot(normal, gate.position)));
-            Shader.SetGlobalFloat(k_Clip, 1f);
+            m_LoggedFurniture = true;
+            Debug.Log($"[Ascii] Floor at {floorY:F2} m, {obstacles} furniture surfaces in yellow");
         }
 
         void SyncOverlays()
@@ -121,6 +108,25 @@ namespace CardboardXR.Demos.Ascii
                 }
                 if (overlay.sharedMesh != source.sharedMesh)
                     overlay.sharedMesh = source.sharedMesh;
+                var painted = overlay.GetComponent<MeshRenderer>();
+                if (painted != null)
+                {
+                    var floorY = Shader.GetGlobalFloat(k_Floor);
+                    var obstacle = AsciiFurniture.IsObstacle(plane.alignment, plane.classification,
+                        plane.transform.position.y, floorY, plane.size);
+                    m_Block.Clear();
+                    m_Block.SetFloat(k_Force, obstacle ? 1f : 0f);
+                    painted.SetPropertyBlock(m_Block);
+                }
+                // The plane's own grid is transparent and draws over everything. Up close, with
+                // passthrough off, that reads as glass. The ASCII overlay is the surface.
+                var grid = plane.GetComponent<MeshRenderer>();
+                if (grid != null && grid.gameObject != overlay.gameObject)
+                {
+                    if (grid.enabled)
+                        grid.enabled = false;
+                    m_Hidden[plane.trackableId] = grid;
+                }
             }
             m_Stale.Clear();
             foreach (var pair in m_Overlays)
@@ -133,7 +139,17 @@ namespace CardboardXR.Demos.Ascii
                 if (m_Overlays.TryGetValue(id, out var overlay) && overlay != null)
                     Destroy(overlay.gameObject);
                 m_Overlays.Remove(id);
+                RestoreGrid(id);
             }
+        }
+
+        void RestoreGrid(TrackableId id)
+        {
+            if (!m_Hidden.TryGetValue(id, out var grid))
+                return;
+            m_Hidden.Remove(id);
+            if (grid != null)
+                grid.enabled = true;
         }
 
         MeshFilter CreateOverlay(ARPlane plane)
@@ -156,6 +172,12 @@ namespace CardboardXR.Demos.Ascii
                     Destroy(pair.Value.gameObject);
             }
             m_Overlays.Clear();
+            foreach (var pair in m_Hidden)
+            {
+                if (pair.Value != null)
+                    pair.Value.enabled = true;
+            }
+            m_Hidden.Clear();
         }
     }
 }

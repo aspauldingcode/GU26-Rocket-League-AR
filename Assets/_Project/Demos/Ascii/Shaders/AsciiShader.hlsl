@@ -3,31 +3,17 @@
 
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
-TEXTURE2D(_GlyphAtlas);
-SAMPLER(sampler_GlyphAtlas);
-
+// Shading only. Glyphs are a screen-space pass (AsciiTerminal.shader), so characters stay
+// upright in front of the camera instead of lying on the surface. Raised tops (tables, seats)
+// are yellow; floor and walls stay green. Stencil 1 marks pixels the terminal pass may replace.
 CBUFFER_START(UnityPerMaterial)
-    float4 _GlyphAtlas_ST;
-    float _GlyphCount;
-    float _CellSize;
-    half4 _Color;
-    half4 _BgColor;
+    half4 _RoomColor;
+    half4 _FurnitureColor;
+    float _ForceFurniture;
     float _Extrude;
-    float _ColorBoost;
-    float _BgFromCamera;
 CBUFFER_END
 
-// Globals from AsciiSurfaces: the passthrough camera image, the AR camera's world-to-local matrix
-// and the image's frustum at unit distance (center xy, size zw), so each cell takes the color the
-// camera saw at that point of the room. Outside the gate, _AsciiClip keeps only the far side of
-// the gate's plane (_AsciiClipPlane: normal xyz, offset w).
-TEXTURE2D(_AsciiCameraTex);
-SAMPLER(sampler_AsciiCameraTex);
-float4x4 _AsciiWorldToCamera;
-float4 _AsciiFrustum;
-float _AsciiUseCamera;
-float4 _AsciiClipPlane;
-float _AsciiClip;
+float _AsciiFloorY;
 
 struct AsciiAttributes
 {
@@ -43,7 +29,6 @@ struct AsciiVaryings
     UNITY_VERTEX_OUTPUT_STEREO
 };
 
-// AR plane meshes carry no normals; the plane's own up (local +y) is its normal.
 AsciiVaryings AsciiVert(AsciiAttributes input)
 {
     AsciiVaryings output;
@@ -58,93 +43,22 @@ AsciiVaryings AsciiVert(AsciiAttributes input)
     return output;
 }
 
-float AsciiHash21(float2 p)
-{
-    float3 p3 = frac(float3(p.xyx) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return frac((p3.x + p3.y) * p3.z);
-}
-
-// A basis in the surface: on walls, v is world up and u runs right as seen from the room; on
-// floors and ceilings, u and v follow world x and z, so the grid never slides as a plane grows.
-void AsciiSurfaceBasis(float3 n, out float3 u, out float3 v)
-{
-    if (abs(n.y) > 0.7)
-    {
-        u = float3(1.0, 0.0, 0.0);
-        v = float3(0.0, 0.0, n.y > 0.0 ? 1.0 : -1.0);
-    }
-    else
-    {
-        v = normalize(float3(0.0, 1.0, 0.0) - n * n.y);
-        u = normalize(cross(n, v));
-    }
-}
-
-bool AsciiCameraColor(float3 positionWS, out half3 color)
-{
-    color = 0;
-    if (_AsciiUseCamera < 0.5)
-        return false;
-    float4 camera = mul(_AsciiWorldToCamera, float4(positionWS, 1.0));
-    if (camera.z < 0.05)
-        return false;
-    float2 uv = (camera.xy / camera.z - _AsciiFrustum.xy) / _AsciiFrustum.zw + 0.5;
-    if (any(uv < 0.0) || any(uv > 1.0))
-        return false;
-    color = SAMPLE_TEXTURE2D_LOD(_AsciiCameraTex, sampler_AsciiCameraTex, uv, 0).rgb;
-    return true;
-}
-
 half4 AsciiFrag(AsciiVaryings input) : SV_Target
 {
     UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
-    if (_AsciiClip > 0.5 && dot(_AsciiClipPlane.xyz, input.positionWS) + _AsciiClipPlane.w < 0.0)
-        discard;
-
     float3 n = normalize(input.normalWS);
-    float3 u, v;
-    AsciiSurfaceBasis(n, u, v);
+    float3 lightDir = normalize(float3(0.25, 0.9, 0.3));
+    float ndotl = saturate(dot(n, lightDir) * 0.65 + 0.35);
+    float dist = distance(input.positionWS, _WorldSpaceCameraPos);
+    float near = saturate(1.0 - dist / 7.0);
+    float shade = lerp(0.4, 1.0, ndotl) * lerp(0.55, 1.0, near);
 
-    float cell = max(_CellSize, 1e-3);
-    float2 grid = float2(dot(input.positionWS, u), dot(input.positionWS, v)) / cell;
-    float2 cellCoord = floor(grid);
-    float2 inCell = grid - cellCoord;
-
-    // One color per cell, read where the cell's center is in the camera image.
-    float2 toCenter = (cellCoord + 0.5 - grid) * cell;
-    float3 centerWS = input.positionWS + u * toCenter.x + v * toCenter.y;
-
-    half3 camera;
-    half3 ink;
-    half3 paper;
-    float lum;
-    if (AsciiCameraColor(centerWS, camera))
-    {
-        // The project is linear; glyph density follows perceived brightness.
-        lum = pow(saturate(dot(camera, half3(0.2126, 0.7152, 0.0722))), 1.0 / 2.2);
-        ink = saturate(camera * _ColorBoost);
-        paper = _BgColor.rgb + camera * _BgFromCamera;
-    }
-    else
-    {
-        half ndotl = saturate(dot(n, normalize(half3(0.25, 0.9, 0.35))) * 0.5 + 0.5);
-        lum = saturate(ndotl * 0.7 + AsciiHash21(cellCoord) * 0.3);
-        ink = _Color.rgb;
-        paper = _BgColor.rgb;
-    }
-
-    // Matches AsciiGlyph.BrightnessToIndex: denser glyphs for brighter cells. Gradients come from
-    // the continuous grid so the cell edges don't pick the smallest mip.
-    float count = max(_GlyphCount, 1.0);
-    float index = floor(saturate(lum) * (count - 1.0) + 1e-4);
-    float2 atlasScale = float2(1.0 / count, 1.0);
-    float2 atlasUV = float2((index + inCell.x) / count, inCell.y);
-    half glyph = SAMPLE_TEXTURE2D_GRAD(_GlyphAtlas, sampler_GlyphAtlas, atlasUV,
-        ddx(grid) * atlasScale, ddy(grid) * atlasScale).r;
-
-    return half4(lerp(paper, ink, glyph), 1.0);
+    // Up-facing surfaces above the floor are what you trip on. Walls and the floor stay room green.
+    float raised = n.y > 0.6 && input.positionWS.y > _AsciiFloorY + 0.15;
+    float furniture = _ForceFurniture > 0.5 || raised;
+    half3 albedo = furniture > 0.5 ? _FurnitureColor.rgb : _RoomColor.rgb;
+    return half4(albedo * shade, furniture > 0.5 ? 0.75 : 0.45);
 }
 
 #endif

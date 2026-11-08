@@ -124,6 +124,10 @@ namespace CardboardXR.Stereo
         // Whether a room scan (ScanRoom) has run its course since 6DoF began, so another isn't needed.
         public bool HasScannedRoom { get; private set; }
 
+        // When set, plane detection stays on after a scan ends so demos that remesh the room
+        // (Ascii) keep finding tables, seats and walls as the user looks around.
+        public bool HoldDetection { get; set; }
+
         void OnEnable()
         {
             // The "boundaryCm" launch option turns the warning on, at that distance.
@@ -273,14 +277,16 @@ namespace CardboardXR.Stereo
                 if (m_StopWhenFloorFound && m_FloorFoundAt >= 0f && now - m_FloorFoundAt >= k_SettleSeconds)
                     StopScan("found the floor");
                 // Not before the floor: finding nothing at all yet isn't finding nothing new. (A
-                // room scan once ended after 5 s with no surfaces.)
-                else if (!m_StopWhenFloorFound && m_Floor.HasValue && m_ScanTime >= k_MinScanSeconds &&
+                // room scan once ended after 5 s with no surfaces.) HoldDetection keeps the scan
+                // alive: Ascii walks the room and needs new planes the whole time, not a scan that
+                // quits once a few seconds pass with nothing new.
+                else if (!HoldDetection && !m_StopWhenFloorFound && m_Floor.HasValue && m_ScanTime >= k_MinScanSeconds &&
                          m_TimeSinceGrowth >= k_NothingNewSeconds)
                     StopScan("found nothing new");
-                else if (m_ScanTime >= m_MaxScanSeconds)
+                else if (!HoldDetection && m_ScanTime >= m_MaxScanSeconds)
                     StopScan("gave up");
             }
-            var detecting = sixDof && m_Scanning;
+            var detecting = sixDof && (m_Scanning || HoldDetection);
             if (m_Planes.enabled != detecting)
                 m_Planes.enabled = detecting;
         }

@@ -15,8 +15,8 @@ namespace CardboardXR.Stereo
     {
         const float k_Thickness = 0.01f;
 
-        [Tooltip("Planes smaller than this, in square meters, are left out.")]
-        [SerializeField] float m_MinArea = 0.2f;
+        [Tooltip("Planes smaller than this, in square meters, are left out. Keep low enough for chair seats and tabletops.")]
+        [SerializeField] float m_MinArea = 0.05f;
 
         ARPlane m_Plane;
         BoxCollider m_Box;

@@ -2,14 +2,10 @@ Shader "CardboardXR/Demos/AsciiSurface"
 {
     Properties
     {
-        _GlyphAtlas ("Glyph Atlas", 2D) = "white" {}
-        _GlyphCount ("Glyph Count", Float) = 70
-        _CellSize ("Cell Size (m)", Float) = 0.08
-        _Color ("Phosphor (no camera)", Color) = (0.25, 1, 0.45, 1)
-        _BgColor ("Background", Color) = (0.01, 0.01, 0.01, 1)
-        _Extrude ("Vertex Extrude (m)", Float) = 0.004
-        _ColorBoost ("Camera Color Boost", Float) = 1.5
-        _BgFromCamera ("Camera Color In Background", Float) = 0.12
+        _RoomColor ("Room", Color) = (0.15, 0.85, 0.32, 1)
+        _FurnitureColor ("Furniture", Color) = (1, 0.78, 0.08, 1)
+        _ForceFurniture ("Force Furniture", Float) = 0
+        _Extrude ("Vertex Extrude (m)", Float) = 0.01
     }
 
     SubShader
@@ -23,12 +19,18 @@ Shader "CardboardXR/Demos/AsciiSurface"
 
         Pass
         {
-            Name "AsciiSurface"
+            Name "AsciiShade"
             Tags { "LightMode" = "UniversalForward" }
 
             Cull Off
             ZWrite On
             ZTest LEqual
+            Stencil
+            {
+                Ref 1
+                Comp Always
+                Pass Replace
+            }
 
             HLSLPROGRAM
             #pragma vertex AsciiVert

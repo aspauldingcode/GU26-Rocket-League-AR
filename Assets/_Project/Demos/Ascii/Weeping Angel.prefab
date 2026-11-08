@@ -45,7 +45,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c977ba3756cf847ad99cbce9a866f866, type: 3}
   m_Name: 
   m_EditorClassIdentifier: CardboardXR.Demos.Ascii::CardboardXR.Demos.Ascii.WeepingAngel
-  m_Speed: 2.2
+  m_Speed: 0.35
   m_SeeDegrees: 28
   m_BodyRadius: 0.35
   m_BodyHeight: 1.8
@@ -120,7 +120,7 @@ PrefabInstance:
     - target: {fileID: -7635826562936255635, guid: ea020f92d71a455aaae9f5dea055b07f, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
-      objectReference: {fileID: 2100000, guid: 6e9d04a292d7d465aafe5d9e89dfdd5d, type: 2}
+      objectReference: {fileID: 2100000, guid: 1d8329171e4d44edda10444ec353ff58, type: 2}
     - target: {fileID: 919132149155446097, guid: ea020f92d71a455aaae9f5dea055b07f, type: 3}
       propertyPath: m_Name
       value: Stone Angel

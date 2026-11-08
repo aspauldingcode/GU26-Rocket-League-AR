@@ -11,7 +11,7 @@ namespace CardboardXR.Demos.Ascii
         const float k_Reach = 0.55f;
         const float k_FloorLift = 0.02f;
 
-        [SerializeField] float m_Speed = 2.2f;
+        [SerializeField] float m_Speed = 0.35f;
         [SerializeField] float m_SeeDegrees = 28f;
         [SerializeField] float m_BodyRadius = 0.35f;
         [SerializeField] float m_BodyHeight = 1.8f;
