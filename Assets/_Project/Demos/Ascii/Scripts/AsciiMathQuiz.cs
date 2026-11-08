@@ -7,10 +7,11 @@ using UnityEngine.UI;
 namespace CardboardXR.Demos.Ascii
 {
     // The math game inside the gate, played on AsciiQuizRules. A briefing explains it; Start puts a
-    // weeping angel behind the player. The question and Kahoot-style answers stay in the same place
-    // in front (MathJax via Tools/ascii_mathjax.cjs): 5 s on the question board, then answers with a
-    // 5 s grace and 10 s to pick — no answer countdown; prompts say "Be quick!" / "look behind you!".
-    // A red scratch pad (AsciiWhiteboard) sits with the question; it's wiped after every answer.
+    // weeping angel behind the player. The question and Kahoot-style answers share one facing in
+    // front (MathJax via Tools/ascii_mathjax.cjs), stacked so they don't overlap: 5 s on the
+    // question board, then answers underneath with a 5 s grace and 10 s to pick — no answer
+    // countdown; prompts say "Be quick!" / "look behind you!". A red scratch pad (AsciiWhiteboard)
+    // sits to the left of the question; it's wiped after every answer.
     // Three mistakes turn the player to stone; finishing the five opens the portal, and walking out
     // through it wins. Logs [Ascii].
     public class AsciiMathQuiz : MonoBehaviour
@@ -37,14 +38,18 @@ namespace CardboardXR.Demos.Ascii
         static readonly int k_StoneId = Shader.PropertyToID("_AsciiStone");
 
         const float k_StoneSeconds = 1.6f;
-        // One depth plane in front: question above, answers below, scratch pad off to the left.
-        // Heights are panel centers in meters — keep them farther apart than half the canvas heights
-        // (~0.4 m each) or the glass surfaces eat each other.
+        // One shared plane so panels don't z-fight. When answers show, stack: equation up, choices down.
         const float k_QuizDistance = 1.5f;
-        const float k_QuestionHeight = 0.32f;
-        const float k_AnswersHeight = -0.62f;
-        const float k_BoardHeight = 0.05f;
-        const float k_BoardSide = -0.95f;
+        const float k_QuestionDistance = k_QuizDistance;
+        const float k_QuestionHeightAlone = 0.05f;
+        const float k_QuestionHeightStacked = 0.5f;
+        const float k_AnswersHeight = -0.55f;
+        // Scratch pad clear of the equation (left); far enough that 460 dp and 640 dp don't meet.
+        const float k_BoardDistance = k_QuizDistance;
+        const float k_BoardSide = -1.35f;
+        const float k_BoardHeightAlone = -0.4f;
+        const float k_BoardHeightStacked = 0.35f;
+        const float k_AnswerDistance = k_QuizDistance;
         const float k_FrontDistance = 1.4f;
         // Fake frosted glass: translucent M3 surface (no fullscreen blur pass).
         static readonly Color k_Glass = M3Theme.WithAlpha(M3Theme.SurfaceContainer, 0.42f);
@@ -225,7 +230,7 @@ namespace CardboardXR.Demos.Ascii
             m_QuestionHeader.text = $"Question {index + 1} of {AsciiQuizRules.k_Questions}";
             SetEquation(index);
             m_Count.color = M3Theme.Primary;
-            PlaceQuizPanels();
+            PlaceQuizPanels(withAnswers: false);
             M3Fade.Show(m_Question.gameObject);
             M3Fade.Show(m_Board.gameObject);
         }
@@ -241,19 +246,21 @@ namespace CardboardXR.Demos.Ascii
                 m_Choices[i].Interactable = true;
             }
             m_Feedback.text = "";
-            // Same spot as the question prompt — not flipped behind the player.
-            PlaceQuizPanels();
+            // Same facing as the question — stacked under it, not on top of it.
+            PlaceQuizPanels(withAnswers: true);
             M3Fade.Show(m_Question.gameObject);
             M3Fade.Show(m_Answers.gameObject);
             M3Fade.Show(m_Board.gameObject);
         }
 
-        void PlaceQuizPanels()
+        void PlaceQuizPanels(bool withAnswers)
         {
-            // Same distance so nearer glass never occludes farther glass.
-            PlaceOffset(m_Question, m_PanelForward, k_QuizDistance, k_QuestionHeight, 0f);
-            PlaceOffset(m_Answers, m_PanelForward, k_QuizDistance, k_AnswersHeight, 0f);
-            PlaceOffset(m_Board, m_PanelForward, k_QuizDistance, k_BoardHeight, k_BoardSide);
+            var questionHeight = withAnswers ? k_QuestionHeightStacked : k_QuestionHeightAlone;
+            var boardHeight = withAnswers ? k_BoardHeightStacked : k_BoardHeightAlone;
+            PlaceOffset(m_Question, m_PanelForward, k_QuestionDistance, questionHeight, 0f);
+            PlaceOffset(m_Board, m_PanelForward, k_BoardDistance, boardHeight, k_BoardSide);
+            if (withAnswers)
+                PlaceOffset(m_Answers, m_PanelForward, k_AnswerDistance, k_AnswersHeight, 0f);
         }
 
         void ShowFeedback()
@@ -289,7 +296,7 @@ namespace CardboardXR.Demos.Ascii
             m_PlainEquation.gameObject.SetActive(true);
             m_Count.text = "";
             m_Status.text = "Walk back through the doorway to escape. Keep an eye on the angel.";
-            WorldUi.PlaceInFront(m_Question, m_Head, k_QuizDistance, 5f);
+            WorldUi.PlaceInFront(m_Question, m_Head, k_QuestionDistance, 5f);
             M3Fade.Show(m_Question.gameObject);
         }
 
@@ -438,6 +445,9 @@ namespace CardboardXR.Demos.Ascii
             right.Normalize();
             var position = m_Head.position + direction * distance + right * side + Vector3.up * height;
             panel.SetPositionAndRotation(position, Quaternion.LookRotation(position - m_Head.position, Vector3.up));
+            var canvas = panel.GetComponent<M3Canvas>();
+            if (canvas != null)
+                canvas.SetDistance(distance);
         }
 
         static Vector3 Flat(Vector3 direction, Vector3 fallback)
@@ -477,43 +487,44 @@ namespace CardboardXR.Demos.Ascii
         // front of it writes notes rather than hitting a panel.
         void BuildQuestion()
         {
-            m_Question = M3.Canvas("Ascii Question", transform, new Vector2(640f, 360f), k_QuizDistance, k_Glass);
-            m_QuestionHeader = M3.Text("Header", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(-140f, 148f),
+            m_Question = M3.Canvas("Ascii Question", transform, new Vector2(640f, 400f), k_QuestionDistance, k_Glass);
+            m_QuestionHeader = M3.Text("Header", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(-140f, 165f),
                 new Vector2(320f, 32f), M3Theme.OnSurfaceVariant, TextAlignmentOptions.Left);
-            m_Mistakes = M3.Text("Mistakes", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(140f, 148f),
+            m_Mistakes = M3.Text("Mistakes", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(140f, 165f),
                 new Vector2(320f, 32f), M3Theme.OnSurfaceVariant, TextAlignmentOptions.Right);
-            var equation = M3.Group("Equation", m_Question, new Vector2(0f, 35f), new Vector2(560f, 170f));
+            var equation = M3.Group("Equation", m_Question, new Vector2(0f, 45f), new Vector2(560f, 190f));
             m_Equation = equation.gameObject.AddComponent<RawImage>();
             m_Equation.raycastTarget = false;
             m_PlainEquation = Big(M3.Text("Plain Equation", m_Question, "", M3Theme.Type.HeadlineSmall,
-                new Vector2(0f, 35f), new Vector2(560f, 110f)), 56f);
-            m_Count = Big(M3.Text("Count", m_Question, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, -90f),
-                new Vector2(300f, 64f), M3Theme.Primary), 56f);
-            m_Status = M3.Text("Status", m_Question, "", M3Theme.Type.BodyLarge, new Vector2(0f, -148f),
-                new Vector2(590f, 40f), M3Theme.OnSurfaceVariant);
+                new Vector2(0f, 45f), new Vector2(560f, 120f)), 56f);
+            m_Count = Big(M3.Text("Count", m_Question, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, -95f),
+                new Vector2(300f, 80f), M3Theme.Primary), 64f);
+            m_Status = M3.Text("Status", m_Question, "", M3Theme.Type.BodyLarge, new Vector2(0f, -162f),
+                new Vector2(590f, 48f), M3Theme.OnSurfaceVariant);
         }
 
         void BuildBoard()
         {
-            m_Board = M3.Canvas("Ascii Scratch Pad", transform, new Vector2(420f, 260f), k_QuizDistance,
+            m_Board = M3.Canvas("Ascii Scratch Pad", transform, new Vector2(460f, 280f), k_BoardDistance,
                 M3Theme.WithAlpha(M3Theme.Surface, 0.35f));
             M3.Text("Label", m_Board, "Scratch pad: pinch in the air to write", M3Theme.Type.BodyMedium,
-                new Vector2(0f, 108f), new Vector2(380f, 28f), M3Theme.OnSurfaceVariant);
+                new Vector2(0f, 118f), new Vector2(420f, 28f), M3Theme.OnSurfaceVariant);
         }
 
+        // Behind the player, away from the angel.
         void BuildAnswers()
         {
-            m_Answers = WorldUi.Panel("Ascii Answers", transform, new Vector2(680f, 360f), k_QuizDistance, k_GlassHigh);
-            m_AnswersHeader = M3.Text("Header", m_Answers, "", M3Theme.Type.TitleMedium, new Vector2(0f, 148f),
+            m_Answers = WorldUi.Panel("Ascii Answers", transform, new Vector2(680f, 340f), k_AnswerDistance, k_GlassHigh);
+            m_AnswersHeader = M3.Text("Header", m_Answers, "", M3Theme.Type.TitleMedium, new Vector2(0f, 138f),
                 new Vector2(620f, 32f), M3Theme.OnSurfaceVariant);
-            m_AnswersTimer = Big(M3.Text("Timer", m_Answers, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, 105f),
+            m_AnswersTimer = Big(M3.Text("Timer", m_Answers, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, 96f),
                 new Vector2(620f, 40f)), 32f);
             m_Choices = new M3Button[4];
             const float width = 300f;
             for (var i = 0; i < m_Choices.Length; i++)
             {
                 var index = i;
-                var position = new Vector2(i % 2 == 0 ? -160f : 160f, i < 2 ? 28f : -52f);
+                var position = new Vector2(i % 2 == 0 ? -160f : 160f, i < 2 ? 28f : -48f);
                 var choice = M3.Button($"Answer {k_Letters[i]}", m_Answers, "", M3Button.Variant.Tonal, position,
                     () => Choose(index), width: width);
                 choice.Label.fontSize = 26f;
@@ -522,7 +533,7 @@ namespace CardboardXR.Demos.Ascii
                 shape.rectTransform.localEulerAngles = new Vector3(0f, 0f, k_Shapes[i].degrees);
                 m_Choices[i] = choice;
             }
-            m_Feedback = M3.Text("Feedback", m_Answers, "", M3Theme.Type.TitleMedium, new Vector2(0f, -140f),
+            m_Feedback = M3.Text("Feedback", m_Answers, "", M3Theme.Type.TitleMedium, new Vector2(0f, -128f),
                 new Vector2(620f, 40f));
         }
 

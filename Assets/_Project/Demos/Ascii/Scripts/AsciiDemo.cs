@@ -41,7 +41,6 @@ namespace CardboardXR.Demos.Ascii
         CoreServices m_Core;
         AsciiWorld m_Portal;
         AsciiSurfaces m_Surfaces;
-        AsciiLights m_Lights;
         AsciiMeshes m_Meshes;
         AsciiAngels m_Angels;
         AsciiMathQuiz m_Quiz;
@@ -77,8 +76,6 @@ namespace CardboardXR.Demos.Ascii
             else
                 FindWalls(planes, core.Boundary);
             m_Surfaces.Configure(m_AsciiMaterial, planes);
-            m_Lights = core.Boundary.gameObject.AddComponent<AsciiLights>();
-            m_Lights.Configure(planes, core.Head);
             // Keep finding floors, tables, seats and walls after the lobby scan ends.
             core.Boundary.HoldDetection = true;
             core.Boundary.ScanRoom();
@@ -145,12 +142,6 @@ namespace CardboardXR.Demos.Ascii
                 Destroy(m_Surfaces);
                 m_Surfaces = null;
             }
-            if (m_Lights != null)
-            {
-                m_Lights.SetActive(false);
-                Destroy(m_Lights);
-                m_Lights = null;
-            }
             if (m_Meshes != null)
             {
                 m_Meshes.SetActive(false);
@@ -197,7 +188,6 @@ namespace CardboardXR.Demos.Ascii
             AsciiTerminal.Active = true;
             SetCapture(true);
             m_Surfaces?.SetLive(true);
-            m_Lights?.SetActive(true);
             var distance = Vector3.Distance(m_Core.Head.position, placed.transform.position);
             Debug.Log($"[Ascii] Gate opened {distance:F1} m away");
             m_Audio.PlayOneShot(m_Whoosh, 0.4f);
@@ -211,23 +201,44 @@ namespace CardboardXR.Demos.Ascii
             m_Crossing = StartCoroutine(Cross(inside));
         }
 
-        // Dip toward black, swap worlds while it's dark, then lift. Going in, the glyphs also
-        // spread outward from the head instead of the whole room appearing at once.
+        // Enter: seal the door immediately with the live camera still in the opening (like looking
+        // back through PortalWorld's doorway), then lift a light veil while glyphs spread. Exit: dip,
+        // restore the room, lift. Quiz Begin runs only after SealDoor finishes.
         System.Collections.IEnumerator Cross(bool inside)
         {
-            if (m_Fade != null)
-                yield return m_Fade.FadeTo(k_DipAlpha, k_DipSeconds);
-            Shader.SetGlobalFloat(k_WaveId, inside ? 1f : 0f);
-            ApplyCrossing(inside);
-            var dark = m_Fade != null ? m_Fade.Alpha : 0f;
-            var seconds = inside ? Mathf.Max(k_RiseSeconds, k_WaveSeconds) : k_RiseSeconds;
-            for (var t = 0f; t < seconds; t += Time.unscaledDeltaTime)
+            if (inside)
+            {
+                // Don't black out first — that made the doorway feed look like it cut instantly.
+                Shader.SetGlobalFloat(k_WaveId, 1f);
+                ApplyCrossing(true);
+                var dark = 0f;
+                if (m_Fade != null)
+                {
+                    yield return m_Fade.FadeTo(0.35f, k_DipSeconds);
+                    dark = m_Fade.Alpha;
+                }
+                var seconds = Mathf.Max(k_RiseSeconds, k_WaveSeconds);
+                for (var t = 0f; t < seconds; t += Time.unscaledDeltaTime)
+                {
+                    if (m_Fade != null)
+                        m_Fade.Alpha = Mathf.Lerp(dark, 0f, Mathf.SmoothStep(0f, 1f, t / k_RiseSeconds));
+                    Shader.SetGlobalFloat(k_WaveId, 1f - Mathf.SmoothStep(0f, 1f, t / k_WaveSeconds));
+                    yield return null;
+                }
+            }
+            else
             {
                 if (m_Fade != null)
-                    m_Fade.Alpha = Mathf.Lerp(dark, 0f, Mathf.SmoothStep(0f, 1f, t / k_RiseSeconds));
-                if (inside)
-                    Shader.SetGlobalFloat(k_WaveId, 1f - Mathf.SmoothStep(0f, 1f, t / k_WaveSeconds));
-                yield return null;
+                    yield return m_Fade.FadeTo(k_DipAlpha, k_DipSeconds);
+                Shader.SetGlobalFloat(k_WaveId, 0f);
+                ApplyCrossing(false);
+                var dark = m_Fade != null ? m_Fade.Alpha : 0f;
+                for (var t = 0f; t < k_RiseSeconds; t += Time.unscaledDeltaTime)
+                {
+                    if (m_Fade != null)
+                        m_Fade.Alpha = Mathf.Lerp(dark, 0f, Mathf.SmoothStep(0f, 1f, t / k_RiseSeconds));
+                    yield return null;
+                }
             }
             if (m_Fade != null)
                 m_Fade.Alpha = 0f;
@@ -323,9 +334,9 @@ namespace CardboardXR.Demos.Ascii
 
         public void EndPinch() => m_Notes?.End();
 
-        // Inside: ASCII fills the room; the door's camera window still shows the real room until
-        // SealDoor finishes. The fullscreen passthrough mesh turns off so stereo/hands/ASCII work,
-        // but RetainCapture keeps feeding that doorway. Outside: restore prior passthrough.
+        // Inside: ASCII fills the room. Fullscreen passthrough mesh goes off (stereo/hands need it),
+        // but RetainCapture keeps the camera feeding the doorway window until SealDoor finishes —
+        // same idea as PortalWorld showing the real room through the open frame. Outside: restore.
         void SetInsideWorld(bool inside)
         {
             if (m_Core == null || inside == m_InsideWorld)
@@ -336,11 +347,11 @@ namespace CardboardXR.Demos.Ascii
             if (inside)
             {
                 m_HadPassthrough = m_Core.Passthrough.IsOn;
-                // Keep capturing for the doorway window; only drop the fullscreen passthrough mesh.
+                // Mesh off; capture stays on for the magenta doorway until the seal completes.
                 if (m_HadPassthrough)
                     m_Core.Passthrough.Choose(false);
                 VirtualEnvironment.SetAllHidden(true);
-                Debug.Log("[Ascii] Inside: ASCII room on; live camera stays in the doorway until it seals");
+                Debug.Log("[Ascii] Inside: door sealing with live camera in the opening, then the quiz starts");
                 return;
             }
             if (m_HadPassthrough)
@@ -392,7 +403,6 @@ namespace CardboardXR.Demos.Ascii
             SetInsideWorld(false);
             SetCapture(false);
             m_Surfaces?.SetLive(false);
-            m_Lights?.SetActive(false);
             m_Meshes?.SetActive(false);
             m_Quiz?.Stop();
             m_Angels?.SetInside(false);
@@ -418,10 +428,12 @@ namespace CardboardXR.Demos.Ascii
                 m_Hint.text = "Look at the floor and pinch to raise the glyph gate.\nNo highlight? Look down at the floor for a moment.";
             else if (m_Quiz != null && m_Quiz.State == AsciiQuizState.Won)
                 m_Hint.text = "You escaped. Play again or head back to the lobby.";
+            else if (m_Quiz != null && m_Quiz.State == AsciiQuizState.Escape)
+                m_Hint.text = "Portal is open — walk back through the doorway to win.";
             else if (!m_Portal.IsInside)
                 m_Hint.text = "Passthrough room outside. Green ASCII through the gate.\nWalk through to play. Unplug first if it's on a cable.";
             else
-                m_Hint.text = "Answer in front. Be quick! Look behind you to slow the angels.";
+                m_Hint.text = "Door sealed. Answer in front. Be quick! Look behind you.";
         }
 
         void BuildPanel()

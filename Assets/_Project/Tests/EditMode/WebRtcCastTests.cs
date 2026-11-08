@@ -108,6 +108,41 @@ namespace CardboardXR.Stereo.Tests
         }
 
         [Test]
+        public void TryParseRoomToleratesMessyPhoneCameraReads()
+        {
+            Assert.That(WebRtcCast.TryParseRoom(
+                "https://aspauldingcode.github.io/GU26-Rocket-League-AR/?room=demo42ab&aspect=1.778\n",
+                out var trimmed), Is.True);
+            Assert.That(trimmed, Is.EqualTo("demo42ab"));
+
+            Assert.That(WebRtcCast.TryParseRoom(
+                "aspauldingcode.github.io/GU26-Rocket-League-AR/?room=messy01x",
+                out var schemeless), Is.True);
+            Assert.That(schemeless, Is.EqualTo("messy01x"));
+
+            Assert.That(WebRtcCast.TryParseRoom("noise room=token99 junk", out var token), Is.True);
+            Assert.That(token, Is.EqualTo("token99"));
+        }
+
+        [Test]
+        public void QrLuminanceDownsampleKeepsAspectAndShrinks()
+        {
+            var source = new byte[1920 * 1080];
+            for (var i = 0; i < source.Length; i++)
+                source[i] = (byte)(i % 251);
+            var down = ViewerQrScanner.DownsampleLuminance(source, 1920, 1080, out var w, out var h, 960);
+            Assert.That(down, Is.Not.Null);
+            Assert.That(w, Is.EqualTo(960));
+            Assert.That(h, Is.EqualTo(540));
+            Assert.That(down.Length, Is.EqualTo(w * h));
+
+            var same = ViewerQrScanner.DownsampleLuminance(source, 640, 360, out var sw, out var sh, 960);
+            Assert.That(sw, Is.EqualTo(640));
+            Assert.That(sh, Is.EqualTo(360));
+            Assert.That(same.Length, Is.EqualTo(640 * 360));
+        }
+
+        [Test]
         public void StartCastCanJoinAnExistingRoom()
         {
             var host = new GameObject("Cast Host").AddComponent<WebRtcCastHost>();

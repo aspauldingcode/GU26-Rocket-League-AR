@@ -78,17 +78,23 @@ namespace CardboardXR.Stereo
             room = null;
             if (string.IsNullOrWhiteSpace(text))
                 return false;
-            text = text.Trim();
+            // Phone cameras sometimes glue a newline or trailing punctuation onto the QR text.
+            text = text.Trim().TrimEnd('.', ',', ';');
             if (System.Text.RegularExpressions.Regex.IsMatch(text, @"^[a-zA-Z0-9]{4,12}$"))
             {
                 room = text.ToLowerInvariant();
                 return true;
             }
-            if (!Uri.TryCreate(text, UriKind.Absolute, out var uri))
-                return false;
+            // Absolute URL, or a scheme-less Pages path a misread QR sometimes yields.
+            if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) &&
+                !Uri.TryCreate("https://" + text.TrimStart('/'), UriKind.Absolute, out uri))
+            {
+                // Last resort: any room=… token in the raw string (broken/partial QR decode).
+                return TryParseRoomToken(text, out room);
+            }
             var query = uri.Query;
             if (string.IsNullOrEmpty(query))
-                return false;
+                return TryParseRoomToken(text, out room);
             foreach (var part in query.TrimStart('?').Split('&'))
             {
                 var kv = part.Split(new[] { '=' }, 2);
@@ -100,7 +106,21 @@ namespace CardboardXR.Stereo
                 room = value;
                 return true;
             }
-            return false;
+            return TryParseRoomToken(text, out room);
+        }
+
+        static bool TryParseRoomToken(string text, out string room)
+        {
+            room = null;
+            var match = System.Text.RegularExpressions.Regex.Match(text,
+                @"[?&#]room=([a-zA-Z0-9]{4,12})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!match.Success)
+                match = System.Text.RegularExpressions.Regex.Match(text,
+                    @"\broom=([a-zA-Z0-9]{4,12})\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!match.Success)
+                return false;
+            room = match.Groups[1].Value.ToLowerInvariant();
+            return true;
         }
 
         // Black modules on white, for a RawImage in the Material cast panel.

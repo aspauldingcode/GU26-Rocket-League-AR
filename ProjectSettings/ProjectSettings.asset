@@ -152,9 +152,6 @@ PlayerSettings:
   bundleVersion: 0.1.0
   preloadedAssets:
   - {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
-  - {fileID: 855596484712505545, guid: adcad94290c6d454395df3b065b2568e, type: 2}
-  - {fileID: 4800000, guid: e7c77f6eaab324a819efdc13b8125a39, type: 3}
-  - {fileID: 4800000, guid: 6743a50a812740be8c0aa3fccc46fae9, type: 3}
   metroInputSource: 0
   wsaTransparentSwapchain: 0
   xboxOneDisableKinectGpuReservation: 1
@@ -781,7 +778,7 @@ PlayerSettings:
   scriptingDefineSymbols:
     Android: APP_UI_EDITOR_ONLY;SENTIS_ANALYTICS_ENABLED
     Standalone: SENTIS_ANALYTICS_ENABLED;APP_UI_EDITOR_ONLY
-    iPhone: UNITY_XR_ARKIT_LOADER_ENABLED;APP_UI_EDITOR_ONLY;SENTIS_ANALYTICS_ENABLED
+    iPhone: UNITY_XR_ARKIT_LOADER_ENABLED;APP_UI_EDITOR_ONLY
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:

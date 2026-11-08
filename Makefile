@@ -4,7 +4,7 @@
 #   make              # this help
 #   make install      # iPhone: build + install + launch (keeps Unity open when possible)
 #   make build        # same as install
-#   make install-android / android  # Android phone via adb (reuses APK if Unity is open)
+#   make install-android / android  # Android: always fresh APK (close Unity first)
 #   make android-emu  # Android Emulator (ARM64+x86_64 APK, boots AVD if needed)
 #   make ios          # same as install
 #   make ios-xcode    # iOS from last Unity export only
@@ -51,9 +51,9 @@ help:
 		'make ios                     same as install' \
 		'make ios-xcode               iOS from last export (always skip Unity)' \
 		'make ios-fresh               force Unity re-export (close Editor first)' \
-		'make install-android / android  Android: tests → build → install (reuses APK if Unity open)' \
+		'make install-android / android  Android: always tests → fresh APK → install (close Unity)' \
 		'make install-android-apk     install+launch existing Builds/ASCIIRooms.apk (no rebuild)' \
-		'make android-fresh           force Unity Android rebuild (close Editor first)' \
+		'make android-fresh           same as install-android (kept for scripts/docs)' \
 		'make android-emu             Android Emulator (x86_64+ARM64; default --ei dof 3)' \
 		'make launch                  relaunch iOS app only' \
 		'make videos                  copy local videos into StreamingAssets' \
@@ -62,8 +62,8 @@ help:
 		'Options: make install ARGS="--ei dof 6" BUNDLE_ID=... UDID=... TEAM=... DEVELOPMENT=1' \
 		'         make install-android ARGS="--ei dof 6" BUNDLE_ID=...' \
 		'         make android-emu ANDROID_AVD=Your_AVD_Name ARGS="--ei demo 0"' \
-		'Phone must be unlocked for launch. First iOS/Android build still needs Unity closed once.' \
-		'Later Android installs can leave the Editor open when Builds/ASCIIRooms.apk exists.'
+		'Phone must be unlocked for launch. Android installs always rebuild; close Unity first.' \
+		'Reuse a built APK with: make install-android-apk'
 
 # Default device path for this fork: iPhone. Script skips Unity when the Editor is open
 # and Builds/iOS already exists.
@@ -76,16 +76,13 @@ ios-xcode:
 ios-fresh: _require-closed-unity
 	CARDBOARDXR_FORCE_UNITY=1 zsh Tools/ios_build_and_run.sh $(ARGS)
 
-# Skips Unity when the Editor is open and Builds/ASCIIRooms.apk already exists (like make install).
-install-android android:
+# Always EditMode tests + fresh Unity APK + install. Editor must be closed.
+install-android android android-fresh: _require-closed-unity
 	zsh Tools/build_and_run.sh $(ARGS)
 
 # Reuse the APK from the last Android build (skips Unity; phone/emulator must be adb-ready).
 install-android-apk:
 	zsh Tools/build_and_run.sh --install-only $(ARGS)
-
-android-fresh: _require-closed-unity
-	CARDBOARDXR_FORCE_UNITY=1 zsh Tools/build_and_run.sh $(ARGS)
 
 android-emu: _require-closed-unity
 	zsh Tools/android_emulator.sh $(ARGS)

@@ -59,61 +59,7 @@ Shader "CardboardXR/Demos/AsciiTerminal"
             // 0 far, 1 when an angel is almost on the player: a red pulse in empty void tiles.
             float _AsciiThreat;
 
-            // Scanned ceiling / window lamps (AsciiLights). At most four analytical shafts.
-            float _AsciiLightCount;
-            float4 _AsciiLight0, _AsciiLight1, _AsciiLight2, _AsciiLight3;
-            float4 _AsciiLightDir0, _AsciiLightDir1, _AsciiLightDir2, _AsciiLightDir3;
-            float4 _AsciiPrimaryLight;
-            // x start, y end, z density, w mist glyph strength in empty hall tiles.
-            float4 _AsciiFog;
-
-            static const float3 k_FallbackLight = float3(0.25, 0.9, 0.3);
-
-            float3 PrimaryLightDir()
-            {
-                float3 dir = _AsciiPrimaryLight.xyz;
-                return dot(dir, dir) > 0.01 ? normalize(dir) : normalize(k_FallbackLight);
-            }
-
-            void LightAt(int i, out float3 pos, out float3 shaftDir, out float power, out float soft)
-            {
-                float4 p = i == 0 ? _AsciiLight0 : i == 1 ? _AsciiLight1 : i == 2 ? _AsciiLight2 : _AsciiLight3;
-                float4 d = i == 0 ? _AsciiLightDir0 : i == 1 ? _AsciiLightDir1 : i == 2 ? _AsciiLightDir2 : _AsciiLightDir3;
-                pos = p.xyz;
-                power = p.w;
-                shaftDir = normalize(d.xyz + 1e-5);
-                soft = max(d.w, 0.08);
-            }
-
-            // Soft cone from a lamp: denser near the axis, dies with distance. No raymarch.
-            float ShaftAt(float3 worldPos, float3 lightPos, float3 shaftDir, float power, float soft)
-            {
-                float3 toP = worldPos - lightPos;
-                float along = dot(toP, shaftDir);
-                if (along < 0.02 || along > 9.0 || power <= 0.0)
-                    return 0.0;
-                float3 radial = toP - shaftDir * along;
-                float cone = along * soft + 0.06;
-                float core = saturate(1.0 - length(radial) / max(cone, 1e-3));
-                return power * core * core * exp(-along * 0.16);
-            }
-
-            float Shafts(float3 worldPos)
-            {
-                float count = min(_AsciiLightCount, 4.0);
-                float sum = 0.0;
-                [unroll]
-                for (int i = 0; i < 4; i++)
-                {
-                    if (i >= (int)count)
-                        break;
-                    float3 pos, dir;
-                    float power, soft;
-                    LightAt(i, pos, dir, power, soft);
-                    sum = max(sum, ShaftAt(worldPos, pos, dir, power, soft));
-                }
-                return saturate(sum);
-            }
+            static const float3 k_Light = float3(0.25, 0.9, 0.3);
 
             // The room pass writes one green. Hands and the door are not that hue.
             bool AsciiGreen(half3 color)
@@ -166,13 +112,13 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 return smoothstep(0.3, 0.7, lerp(previous, current, saturate(_AsciiPersonBlend))) * _AsciiPersonOn;
             }
 
-            // March toward the primary scanned light and reproject. A nearer surface along that
+            // March toward the light in world space and reproject. A nearer surface along that
             // ray is a cast shadow: the table on the floor, the angel on the ground.
             float CastShadow(float2 uv)
             {
                 float raw = SampleSceneDepth(uv);
                 float3 pos = ComputeWorldSpacePosition(uv, raw, UNITY_MATRIX_I_VP);
-                float3 lightDir = PrimaryLightDir();
+                float3 lightDir = normalize(k_Light);
                 float occ = 0.0;
                 [unroll]
                 for (int i = 1; i <= 8; i++)
@@ -188,20 +134,6 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                     occ = max(occ, hit);
                 }
                 return occ;
-            }
-
-            // Sparse mist glyphs for empty hall tiles. Cheap hash, no texture.
-            half MistGlyph(float2 cellCoord, float2 inCell, float amount)
-            {
-                float n = frac(sin(dot(cellCoord, float2(127.1, 311.7))) * 43758.55);
-                float dens = amount * 0.55;
-                if (n > dens)
-                    return 0;
-                float2 d = abs(inCell - 0.5);
-                float dotInk = saturate(1.0 - length(d) * lerp(6.0, 3.2, n));
-                float dash = saturate(1.0 - abs(inCell.y - 0.5) * 7.0) *
-                             saturate(1.0 - abs(inCell.x - 0.5) * 2.4);
-                return max(dotInk * 0.55, dash * step(n, dens * 0.35)) * amount;
             }
 
             struct Tile
@@ -280,20 +212,15 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 float up = Eye(centerUv + float2(0.0, cellUv.y));
                 float curv = max(abs(left + right - 2.0 * depth), abs(down + up - 2.0 * depth));
                 float edge = saturate((curv / max(depth, 0.3) - 0.18) * 4.0);
-                // Cast shadow from the scanned lamp, plus the dark side of the mesh.
+                // Cast shadow from the ray, plus the dark side of the mesh. Size stays on depth.
                 float shade = max(CastShadow(centerUv), saturate(1.0 - form));
 
-                float raw = SampleSceneDepth(centerUv);
-                float3 world = ComputeWorldSpacePosition(centerUv, raw, UNITY_MATRIX_I_VP);
-                float shaft = Shafts(world);
-                float fog = AsciiFogAmount(depth, _AsciiFog);
-
                 // Edges stay inside the fade, so a far silhouette doesn't glow out of the black.
-                float presence = AsciiDepthBrightness(depth) * (1.0 - fog * 0.85);
-                float depthBright = saturate(presence + edge * 0.2 * presence + shaft * 0.35 * (1.0 - fog));
-                float pick = AsciiGlyphPick(saturate(form + shaft * 0.25), depthBright);
-                pick = saturate(pick * lerp(1.0, 0.55, shade) + edge * 0.12 + shaft * 0.1);
-                float bright = depthBright * lerp(1.0, 0.16, shade);
+                float presence = AsciiDepthBrightness(depth);
+                float depthBright = saturate(presence + edge * 0.2 * presence);
+                float pick = AsciiGlyphPick(form, depthBright);
+                pick = saturate(pick * lerp(1.0, 0.62, shade) + edge * 0.12);
+                float bright = depthBright * lerp(1.0, 0.18, shade);
 
                 float shown = 1.0;
                 if (_AsciiWave > 0.0)
@@ -305,12 +232,8 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 half glyph = AsciiGlyphInk(TEXTURE2D_ARGS(_GlyphAtlas, sampler_GlyphAtlas), _GlyphCount, pick, inCell, cell);
                 half cover = saturate(glyph * lerp(0.82, 1.0, saturate(bright))) * shown;
                 half3 ink = _Ink.rgb * bright;
-                // Shafts warm the phosphor slightly; fog pulls ink toward paper down the hall.
-                ink = lerp(ink, ink * half3(1.15, 1.05, 0.75), shaft * 0.55);
                 half3 paper = _Paper.rgb * presence * shown;
-                half3 color = lerp(paper, ink, cover);
-                half3 mist = _Ink.rgb * 0.12 * fog;
-                return color + mist * (1.0 - cover) * shown;
+                return lerp(paper, ink, cover);
             }
 
             half4 Frag(Varyings input) : SV_Target
@@ -336,28 +259,14 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 Tile tile = TileAt(pixel, size);
                 half3 color;
                 bool drawn = false;
-                // No scene depth (nothing rendered): true black inside, with hall mist + shafts.
+                // No scene depth (nothing rendered): true black inside, not the clear color.
                 if (empty)
                 {
                     color = _AsciiVoid > 0.5 ? half3(0, 0, 0) : here;
-                    if (_AsciiVoid > 0.5)
+                    if (_AsciiVoid > 0.5 && _AsciiThreat > 0.05)
                     {
-                        float mistDepth = 7.5;
-                        float3 farWorld = ComputeWorldSpacePosition(tile.centerUv, 0.5, UNITY_MATRIX_I_VP);
-                        float3 view = normalize(farWorld - _WorldSpaceCameraPos);
-                        float3 samplePos = _WorldSpaceCameraPos + view * mistDepth;
-                        float shaft = Shafts(samplePos);
-                        float fog = AsciiFogAmount(mistDepth, _AsciiFog);
-                        float2 cellCoord = floor(pixel / tile.cell);
-                        half mist = MistGlyph(cellCoord, tile.inCell, fog * _AsciiFog.w);
-                        half shaftMist = MistGlyph(cellCoord + 17.0, tile.inCell, shaft * 0.85);
-                        color += _Ink.rgb * (mist * 0.22 + shaftMist * 0.55);
-                        color += _Ink.rgb * half3(1.1, 1.0, 0.7) * shaft * 0.12;
-                        if (_AsciiThreat > 0.05)
-                        {
-                            float pulse = 0.5 + 0.5 * sin(_Time.y * 9.0);
-                            color = lerp(color, half3(0.35, 0.02, 0.02) * pulse, _AsciiThreat * 0.55);
-                        }
+                        float pulse = 0.5 + 0.5 * sin(_Time.y * 9.0);
+                        color = lerp(color, half3(0.35, 0.02, 0.02) * pulse, _AsciiThreat * 0.55);
                     }
                 }
                 else

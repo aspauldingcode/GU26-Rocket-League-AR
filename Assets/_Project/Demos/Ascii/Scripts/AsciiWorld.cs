@@ -50,6 +50,9 @@ namespace CardboardXR.Demos.Ascii
         Material m_FrameMaterial;
         Material m_WindowMaterial;
         Coroutine m_Animating;
+        // Peek slabs stay hidden until the first rise finishes — otherwise their near faces sit on
+        // the door plane and flash a green ASCII sheet while the frame is still coming up.
+        bool m_PeekReady;
 
         public bool IsInside { get; private set; }
         public bool ReturnUnlocked { get; private set; }
@@ -63,9 +66,11 @@ namespace CardboardXR.Demos.Ascii
             m_World.SetParent(transform, false);
             m_World.localRotation = Quaternion.Euler(0f, 180f, 0f);
             BuildPeek();
+            if (m_Peek != null)
+                m_Peek.SetActive(false);
             BuildMasks();
             SetInside(false, announce: false);
-            m_Animating = StartCoroutine(Animate(k_RiseSeconds, BackOut, null));
+            m_Animating = StartCoroutine(Animate(k_RiseSeconds, BackOut, () => m_PeekReady = true));
         }
 
         public void Close(Action closed)
@@ -172,14 +177,14 @@ namespace CardboardXR.Demos.Ascii
             // The peek is a room-sized box behind the door. Walked around to the back, the player
             // stands inside it and its far walls fade to a black wall, so it only draws from the front.
             if (m_Peek != null)
-                m_Peek.SetActive(!IsInside && head.z < 0f);
+                m_Peek.SetActive(m_PeekReady && !IsInside && head.z < 0f);
         }
 
         void SetInside(bool inside, bool announce)
         {
             IsInside = inside;
             if (m_Peek != null)
-                m_Peek.SetActive(!inside);
+                m_Peek.SetActive(m_PeekReady && !inside);
             m_OutsideMask.SetActive(!inside);
             // Keep the frame up on enter so SealDoor can sink it; hide only after it seals or when
             // already locked and not unlocking. UnlockReturnPortal rises it again in place.
@@ -281,6 +286,7 @@ namespace CardboardXR.Demos.Ascii
         // Green ASCII slabs parented under the depth-masked World so the doorway peeks at phosphor
         // green — not the real room, and not camera-tinted glyphs. Hidden once you're inside.
         // The ASCII shader treats local +Y as the surface normal, so each slab is rotated to face in.
+        // Kept clear of z=0 so cube end-caps don't sit in the door plane as a green perpendicular sheet.
         void BuildPeek()
         {
             m_Peek = new GameObject("Peek");
@@ -288,15 +294,18 @@ namespace CardboardXR.Demos.Ascii
             var peek = m_Peek.transform;
             const float half = 12f;
             const float wallH = 4f;
+            const float near = 0.2f;
             const float depth = 14f;
+            var span = depth - near;
+            var mid = near + span / 2f;
             // Thin in local Y; rotate so +Y is the inward-facing normal, then stretch in local XZ.
-            Slab("Floor", peek, new Vector3(0f, 0.002f, depth / 2f), new Vector3(half * 2f, 0.01f, depth),
+            Slab("Floor", peek, new Vector3(0f, 0.002f, mid), new Vector3(half * 2f, 0.01f, span),
                 Quaternion.identity);
-            Slab("Ceiling", peek, new Vector3(0f, wallH, depth / 2f), new Vector3(half * 2f, 0.01f, depth),
+            Slab("Ceiling", peek, new Vector3(0f, wallH, mid), new Vector3(half * 2f, 0.01f, span),
                 Quaternion.Euler(180f, 0f, 0f));
-            Slab("Left Wall", peek, new Vector3(-half, wallH / 2f, depth / 2f), new Vector3(wallH, 0.01f, depth),
+            Slab("Left Wall", peek, new Vector3(-half, wallH / 2f, mid), new Vector3(wallH, 0.01f, span),
                 Quaternion.Euler(0f, 0f, -90f));
-            Slab("Right Wall", peek, new Vector3(half, wallH / 2f, depth / 2f), new Vector3(wallH, 0.01f, depth),
+            Slab("Right Wall", peek, new Vector3(half, wallH / 2f, mid), new Vector3(wallH, 0.01f, span),
                 Quaternion.Euler(0f, 0f, 90f));
             Slab("Back Wall", peek, new Vector3(0f, wallH / 2f, depth), new Vector3(half * 2f, 0.01f, wallH),
                 Quaternion.Euler(90f, 0f, 0f));

@@ -8,9 +8,9 @@
 # For heat: renderScale N (percent, e.g. 70), msaa 1|2|4|8, handHz N (0 = every image).
 # Install an already-built APK without rebuilding:
 #   zsh Tools/build_and_run.sh --install-only
-# If the Editor is already open and Builds/ASCIIRooms.apk exists, the Unity step is skipped
-# automatically (same idea as make install / iOS). Set CARDBOARDXR_FORCE_UNITY=1 for a fresh
-# batch build (Editor must be closed). Logs go to $LOGS.
+#   (or: make install-android-apk)
+# Default path always runs EditMode tests and a fresh Unity Android build. Close the Editor
+# first — batchmode needs the project lock. Logs go to $LOGS.
 # Default target is a physical USB phone (`adb -d`). Emulator: make android-emu / CARDBOARDXR_EMULATOR=1.
 # USB drops are common: if install doesn't print "Success", run `adb kill-server; adb start-server`
 # and install again, since the launch that follows would otherwise start the previous build.
@@ -50,26 +50,11 @@ for arg in "$@"; do
 done
 set -- "${LAUNCH_ARGS[@]}"
 
-# Batchmode can't lock the project while the Editor has it open. Prefer installing the last APK
-# so `make install-android` works without quitting Unity (mirrors Tools/ios_build_and_run.sh).
-# Only reuse Builds/ASCIIRooms.apk — never the legacy CardboardXR.apk (wrong product / stale).
+# Always rebuild unless --install-only. Batchmode can't lock the project while the Editor is open.
 if [ $INSTALL_ONLY -eq 0 ] && pgrep -f "Unity.app/Contents/MacOS/Unity" >/dev/null; then
-    if [ "${CARDBOARDXR_FORCE_UNITY:-}" = "1" ]; then
-        echo "Unity is running; close it first (CARDBOARDXR_FORCE_UNITY=1 needs the project lock)."
-        exit 1
-    fi
-    if [ -f "$APK" ]; then
-        echo "== Unity is open; reusing $APK (set CARDBOARDXR_FORCE_UNITY=1 for a fresh build)"
-        INSTALL_ONLY=1
-    else
-        echo "Unity is running and there is no Android APK yet at $APK."
-        echo "Close Unity once for a batch build (make install-android), or build an APK from the Editor."
-        if [ -f "$LEGACY_APK" ]; then
-            echo "Found stale $LEGACY_APK — ignoring it (rebuild to create $APK)."
-        fi
-        echo "Later installs can leave the Editor open when $APK already exists."
-        exit 1
-    fi
+    echo "Unity is running; close it first (make install-android always builds a fresh APK)."
+    echo "To install the last APK without rebuilding: make install-android-apk"
+    exit 1
 fi
 
 # Prefer an explicit serial (emulator script sets this), else -e when CARDBOARDXR_EMULATOR=1,
