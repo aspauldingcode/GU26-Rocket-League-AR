@@ -28,7 +28,8 @@ MonoBehaviour:
   - {fileID: 7833122117494664109}
   - {fileID: 1271337792644427907}
   - {fileID: 3359158629328887409}
-  m_RendererFeatureMap: ad6b866f10d7b46c83b01990fcb2a411711e56cdf9209e2el
+  - {fileID: 910000000000000002}
+  m_RendererFeatureMap: ad6b866f10d7b46c83b01990fcb2a411711e56cdf9209e2e02009bb92df8a00cl
   xrSystemData: {fileID: 0}
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
   m_AssetVersion: 3
@@ -109,3 +110,17 @@ MonoBehaviour:
     BlurQuality: 0
     Falloff: 100
     SampleCount: -1
+--- !u!114 &910000000000000002
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c19b9f1b7071946e4bd1b17f3fd84c7a, type: 3}
+  m_Name: Ascii Terminal
+  m_EditorClassIdentifier: CardboardXR.Demos.Ascii::CardboardXR.Demos.Ascii.AsciiTerminalFeature
+  m_Active: 1
+  m_Material: {fileID: 2100000, guid: a91c0e7d4b2f48e6a5c3d8e17f604b29, type: 2}

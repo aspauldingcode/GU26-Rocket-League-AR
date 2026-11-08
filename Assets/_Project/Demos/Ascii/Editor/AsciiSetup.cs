@@ -44,8 +44,8 @@ namespace ProjectBootstrap
             {
                 name = "Ascii Surface",
             }, $"{folder}/Ascii Surface.mat");
-            ascii.SetColor("_RoomColor", new Color(0.15f, 0.85f, 0.32f, 1f));
-            ascii.SetColor("_FurnitureColor", new Color(1f, 0.78f, 0.08f, 1f));
+            ascii.SetColor("_RoomColor", new Color(0f, 1f, 0f, 1f));
+            ascii.SetColor("_FurnitureColor", new Color(1f, 0.92f, 0f, 1f));
             ascii.SetFloat("_ForceFurniture", 0f);
             ascii.SetFloat("_Extrude", 0.01f);
             EditorUtility.SetDirty(ascii);

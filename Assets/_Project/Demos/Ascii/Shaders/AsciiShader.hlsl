@@ -5,7 +5,7 @@
 
 // Shading only. Glyphs are a screen-space pass (AsciiTerminal.shader), so characters stay
 // upright in front of the camera instead of lying on the surface. Raised tops (tables, seats)
-// are yellow; floor and walls stay green. Stencil 1 marks pixels the terminal pass may replace.
+// are yellow; floor and walls stay green. Those hues are what the terminal pass replaces.
 CBUFFER_START(UnityPerMaterial)
     half4 _RoomColor;
     half4 _FurnitureColor;
@@ -52,13 +52,14 @@ half4 AsciiFrag(AsciiVaryings input) : SV_Target
     float ndotl = saturate(dot(n, lightDir) * 0.65 + 0.35);
     float dist = distance(input.positionWS, _WorldSpaceCameraPos);
     float near = saturate(1.0 - dist / 7.0);
-    float shade = lerp(0.4, 1.0, ndotl) * lerp(0.55, 1.0, near);
+    // Stay saturated. The terminal pass recognizes these hues and replaces them with glyphs.
+    float shade = lerp(0.55, 1.0, ndotl) * lerp(0.75, 1.0, near);
 
     // Up-facing surfaces above the floor are what you trip on. Walls and the floor stay room green.
     float raised = n.y > 0.6 && input.positionWS.y > _AsciiFloorY + 0.15;
     float furniture = _ForceFurniture > 0.5 || raised;
     half3 albedo = furniture > 0.5 ? _FurnitureColor.rgb : _RoomColor.rgb;
-    return half4(albedo * shade, furniture > 0.5 ? 0.75 : 0.45);
+    return half4(albedo * shade, 1.0);
 }
 
 #endif

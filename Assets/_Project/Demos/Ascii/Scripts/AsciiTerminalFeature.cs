@@ -7,13 +7,14 @@ using UnityEngine.Rendering.Universal;
 namespace CardboardXR.Demos.Ascii
 {
     // Full-screen terminal pass. Off unless AsciiTerminal.Active, so the rest of the app is untouched.
-    // Replaces only the pixels the shade shader marked (stencil 1, green or yellow), so the door
-    // frame, angels, hands and passthrough stay as they are.
+    // Replaces the pure green and yellow shade pixels with glyphs. The door, angels, hands and
+    // passthrough are not those hues, so they stay as they are.
     public class AsciiTerminalFeature : ScriptableRendererFeature
     {
         [SerializeField] Material m_Material;
 
         TerminalPass m_Pass;
+        bool m_Logged;
 
         public Material Material
         {
@@ -28,8 +29,13 @@ namespace CardboardXR.Demos.Ascii
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
-            if (!AsciiTerminal.Active || m_Material == null)
+            if (!AsciiTerminal.Active)
                 return;
+            if (m_Material == null)
+            {
+                Debug.LogWarning("[Ascii] Terminal pass has no material");
+                return;
+            }
             var cameraType = renderingData.cameraData.cameraType;
             if (cameraType == CameraType.Preview || cameraType == CameraType.Reflection)
                 return;
@@ -38,6 +44,10 @@ namespace CardboardXR.Demos.Ascii
             m_Pass.ConfigureInput(ScriptableRenderPassInput.Depth);
             m_Pass.Setup(m_Material);
             renderer.EnqueuePass(m_Pass);
+            if (m_Logged)
+                return;
+            m_Logged = true;
+            Debug.Log("[Ascii] Terminal pass running");
         }
 
         sealed class TerminalPass : ScriptableRenderPass

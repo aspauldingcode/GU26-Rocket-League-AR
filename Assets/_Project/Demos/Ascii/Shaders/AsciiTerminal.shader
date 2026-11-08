@@ -21,12 +21,6 @@ Shader "CardboardXR/Demos/AsciiTerminal"
             ZTest Always
             ZWrite Off
             Cull Off
-            Stencil
-            {
-                Ref 1
-                Comp Equal
-                Pass Keep
-            }
 
             HLSLPROGRAM
             #pragma vertex Vert
@@ -49,15 +43,16 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 half4 _WarnPaper;
             CBUFFER_END
 
+            // The shade pass writes near-pure green and yellow. Camera pixels, the door, and the
+            // angels are not that saturated, so they pass through unchanged.
             bool AsciiGreen(half3 color)
             {
-                return color.g > 0.03 && color.g > color.r * 1.2 && color.g > color.b * 1.15;
+                return color.g > 0.25 && color.r < color.g * 0.22 && color.b < color.g * 0.22;
             }
 
             bool AsciiYellow(half3 color)
             {
-                return color.r > 0.04 && color.g > 0.04 && color.b < color.g * 0.55
-                    && color.r > color.b * 1.35 && abs(color.r - color.g) < max(color.r, color.g) * 0.45;
+                return color.r > 0.25 && color.b < 0.1 && color.g > color.r * 0.7 && color.g < color.r * 1.2;
             }
 
             half4 Frag(Varyings input) : SV_Target
