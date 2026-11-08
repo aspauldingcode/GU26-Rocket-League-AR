@@ -30,6 +30,9 @@ namespace CardboardXR.Stereo
         const float k_WorldCastDeadZone = 30f;
         // No camera image for this long after the scan starts: say so on the hint.
         const float k_NoFeedSeconds = 5f;
+        // A second Share press within this window is the same press delivered twice, not a
+        // toggle-off (PinchRouter's k_ClickLockoutSeconds guards pinches the same way).
+        const float k_SharePressSeconds = 0.5f;
 
         // A share scan began: anything else using the room (the lobby's room scan) steps aside.
         public static event System.Action ShareScanStarted;
@@ -57,6 +60,7 @@ namespace CardboardXR.Stereo
         GameObject m_Snackbar;
         float m_ToastHideTime;
         bool m_Resolving;
+        float m_LastSharePress = float.NegativeInfinity;
         bool m_CastScanning;
         bool m_SessionWasEnabled;
         bool m_CameraWasEnabled;
@@ -179,8 +183,20 @@ namespace CardboardXR.Stereo
             SetScanning(true);
         }
 
+        // A second Share press this soon after the last is the same press delivered twice,
+        // not a toggle-off. Pure, for testing.
+        public static bool IsShareRepeat(float lastPress, float now) => now - lastPress < k_SharePressSeconds;
+
         void ChooseShare()
         {
+            // One press can be delivered twice — a button carrying both a serialized and a
+            // runtime listener, or a pinch racing the viewer trigger — and Share toggles,
+            // so the duplicate would undo the press in the same instant and Share would
+            // look dead. A press this soon after the last one is that same press.
+            var now = Time.unscaledTime;
+            if (IsShareRepeat(m_LastSharePress, now))
+                return;
+            m_LastSharePress = now;
             Debug.Log($"[Cast] Share pressed (casting={m_Cast != null && m_Cast.IsCasting}, scanning={m_CastScanning})");
             M3Fade.Hide(m_Menu);
             SettingsPanelHub.Close();
@@ -322,10 +338,30 @@ namespace CardboardXR.Stereo
             }
         }
 
+        // Whether the button's serialized listeners already call ShareScreen on target.
+        // StereoBuilder writes that call into the scene, and serialized calls DO fire in
+        // builds — so also adding a runtime listener runs ChooseShare twice per press.
+        // Share toggles, so the second run cancelled the first in the same instant: the
+        // 3D Share looked dead while the 2D menu (runtime listener only) worked. Pure,
+        // for testing.
+        public static bool HasSerializedShare(Button button, UnityEngine.Object target)
+        {
+            if (button == null)
+                return false;
+            for (var i = 0; i < button.onClick.GetPersistentEventCount(); i++)
+            {
+                if (button.onClick.GetPersistentTarget(i) == target &&
+                    button.onClick.GetPersistentMethodName(i) == nameof(ShareScreen))
+                    return true;
+            }
+            return false;
+        }
+
         // The 3D toolbar Share must act exactly like the phone-screen menu's Share: same
-        // ChooseShare. Editor-built onClick listeners don't survive into a build, so this wires
-        // it at runtime — retried from Update until it lands, since the panel may not exist yet
-        // when Awake runs.
+        // ChooseShare. The scene's button already carries a serialized call to ShareScreen
+        // (see HasSerializedShare); wire a runtime listener only where it doesn't, so the
+        // press lands exactly once either way. Retried from Update until it lands, since
+        // the panel may not exist yet when Awake runs.
         void EnsureToolbarShare()
         {
             if (m_ToolbarWired)
@@ -344,10 +380,13 @@ namespace CardboardXR.Stereo
                 if (button == null)
                     return;
                 button.onClick.RemoveListener(ShareScreen);
-                button.onClick.AddListener(ShareScreen);
+                var serialized = HasSerializedShare(button, this);
+                if (!serialized)
+                    button.onClick.AddListener(ShareScreen);
                 m_ToolbarWired = true;
                 UpdateShareLabel();
-                Debug.Log("[Cast] 3D toolbar Share wired to the share flow");
+                Debug.Log($"[Cast] 3D toolbar Share wired to the share flow " +
+                          $"({(serialized ? "serialized call already on the button" : "runtime listener added")})");
                 return;
             }
 
