@@ -32,6 +32,7 @@ namespace CardboardXR.Demos.Ascii
         static readonly int k_CameraFrustumId = Shader.PropertyToID("_AsciiCameraFrustum");
         static readonly int k_CameraOnId = Shader.PropertyToID("_AsciiCameraOn");
         static readonly int k_WaveId = Shader.PropertyToID("_AsciiWave");
+        static readonly int k_VoidId = Shader.PropertyToID("_AsciiVoid");
 
         [SerializeField] GameObject m_PortalPrefab;
         [SerializeField] Material m_AsciiMaterial;
@@ -315,6 +316,7 @@ namespace CardboardXR.Demos.Ascii
             if (m_Core == null || inside == m_InsideWorld)
                 return;
             m_InsideWorld = inside;
+            Shader.SetGlobalFloat(k_VoidId, inside ? 1f : 0f);
             m_People?.SetActive(inside);
             if (inside)
             {

@@ -5,14 +5,17 @@ using UnityEngine;
 namespace CardboardXR.Demos.Ascii
 {
     // Finds people in the camera image, so the terminal draws them as light-blue glyphs and nobody
-    // in the real room gets walked into. DeepLab v3 (PASCAL VOC, class 15 is a person) on the same
-    // Inference Engine the hand tracker runs, a few times a second, on the GPU when it can. The
-    // terminal crossfades from the last mask to the new one. Logs [Ascii].
+    // in the real room gets walked into. MediaPipe's landscape selfie segmenter as ONNX (256x144,
+    // 106K parameters, one person-confidence channel; the .tflite needs a MediaPipe custom op the
+    // importer lacks) on the same Inference Engine the hand tracker runs, four times a
+    // second, on the GPU when it can. The terminal crossfades from the last mask to the new one, so
+    // the low rate doesn't show. A multi-class model (DeepLab: 21 classes, softmax, class 15 is a
+    // person) still works if dropped in instead. Logs [Ascii].
     public class AsciiPeople : MonoBehaviour
     {
         const string k_ModelResource = "AsciiPersonSegmenter";
         const int k_PersonClass = 15;
-        const float k_Interval = 0.2f;
+        const float k_Interval = 0.25f;
         const float k_FadeSeconds = 0.5f;
 
         static readonly int k_MaskId = Shader.PropertyToID("_AsciiPersonMask");
@@ -51,26 +54,39 @@ namespace CardboardXR.Demos.Ascii
             }
             var model = ModelLoader.Load(asset);
             var inputShape = model.inputs[0].shape;
-            if (!inputShape.IsStatic() || inputShape.rank != 4)
+            // A dynamic batch (ONNX exports) is fine: it's always one frame.
+            if (inputShape.isRankDynamic || inputShape.rank != 4 || inputShape.Get(1) < 1 || inputShape.Get(2) < 1 ||
+                inputShape.Get(3) < 1)
             {
                 Debug.LogWarning($"[Ascii] Person segmenter input {inputShape} isn't a fixed image; people won't be drawn");
                 m_Failed = true;
                 return;
             }
-            var shape = inputShape.ToTensorShape();
+            var shape = new TensorShape(1, inputShape.Get(1), inputShape.Get(2), inputShape.Get(3));
             // LiteRT models keep their NHWC layout; textures convert to NCHW.
             var nhwc = shape[3] == 3;
             var height = nhwc ? shape[1] : shape[2];
             var width = nhwc ? shape[2] : shape[3];
             var classAxis = nhwc ? 3 : 1;
+            // One channel: already a person confidence, from a 0..1 image. Many: class scores, from -1..1.
+            bool single;
+            using (var probe = new Worker(model, BackendType.CPU))
+            using (var blank = new Tensor<float>(shape))
+            {
+                probe.Schedule(blank);
+                var probed = probe.PeekOutput().shape;
+                single = probed.rank == 4 && probed[classAxis] == 1;
+            }
 
             var graph = new FunctionalGraph();
             var image = graph.AddInput(DataType.Float, new TensorShape(1, 3, height, width));
-            var x = 2f * image - 1f;
+            var x = single ? image : 2f * image - 1f;
             if (nhwc)
                 x = x.Permute(new[] { 0, 2, 3, 1 });
-            var logits = Functional.Forward(model, x)[0];
-            var person = Functional.Softmax(logits, classAxis).Select(classAxis, k_PersonClass).Unsqueeze(1);
+            var output = Functional.Forward(model, x)[0];
+            var person = single
+                ? output.Select(classAxis, 0).Unsqueeze(1)
+                : Functional.Softmax(output, classAxis).Select(classAxis, k_PersonClass).Unsqueeze(1);
 
             var backend = SystemInfo.supportsComputeShaders ? BackendType.GPUCompute : BackendType.CPU;
             m_Worker = new Worker(graph.Compile(person), backend);
@@ -86,7 +102,8 @@ namespace CardboardXR.Demos.Ascii
                 };
                 Graphics.Blit(Texture2D.blackTexture, m_Masks[i]);
             }
-            Debug.Log($"[Ascii] Person segmenter {width}x{height} ({(nhwc ? "NHWC" : "NCHW")}) on {backend}");
+            Debug.Log($"[Ascii] Person segmenter {width}x{height} ({(nhwc ? "NHWC" : "NCHW")}, " +
+                      $"{(single ? "one person channel" : "class scores")}) on {backend}");
         }
 
         void Update()

@@ -123,6 +123,10 @@ namespace CardboardXR.Demos.Ascii
             }
             m_LastHead = head;
             m_HasLastHead = true;
+            // The peek is a room-sized box behind the door. Walked around to the back, the player
+            // stands inside it and its far walls fade to a black wall, so it only draws from the front.
+            if (m_Peek != null)
+                m_Peek.SetActive(!IsInside && head.z < 0f);
         }
 
         void SetInside(bool inside, bool announce)

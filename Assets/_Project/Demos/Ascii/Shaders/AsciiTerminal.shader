@@ -51,6 +51,9 @@ Shader "CardboardXR/Demos/AsciiTerminal"
             float _AsciiPersonBlend;
             // 0 once the room is fully drawn; from 1 down to 0 the glyphs grow outward from the head.
             float _AsciiWave;
+            // 1 inside, where passthrough is off: nothing rendered means the void. Outside, those
+            // pixels are the passthrough image.
+            float _AsciiVoid;
             // 0 to 1 as the player turns to stone: every glyph drains to gray.
             float _AsciiStone;
 
@@ -234,9 +237,9 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 Tile tile = TileAt(pixel, size);
                 half3 color;
                 bool drawn = false;
-                // No scene depth (nothing rendered): true black, not the clear color.
+                // No scene depth (nothing rendered): true black inside, not the clear color.
                 if (empty)
-                    color = 0;
+                    color = _AsciiVoid > 0.5 ? half3(0, 0, 0) : here;
                 else
                 {
                     color = Room(tile, size, drawn);
