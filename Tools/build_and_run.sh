@@ -6,6 +6,8 @@
 # Options: demo N, dof 3|6, passthrough 1, arView 1, boundaryCm N, handAxes 1..8, pinchStudy 1,
 # imuPosition 0, nativeImu 0, tracker 1, predictionMs N, fps N.
 # For heat: renderScale N (percent, e.g. 70), msaa 1|2|4|8, handHz N (0 = every image).
+# Install an already-built APK without rebuilding:
+#   zsh Tools/build_and_run.sh --install-only
 # Close the project in the Editor first (batch mode needs the project lock). Logs go to $LOGS.
 # USB drops are common: if install doesn't print "Success", run `adb kill-server; adb start-server`
 # and install again, since the launch that follows would otherwise start the previous build.
@@ -17,9 +19,25 @@ U=${UNITY:-/Applications/Unity/Hub/Editor/6000.6.8f1/Unity.app/Contents/MacOS/Un
 #   CARDBOARDXR_BUNDLE_ID=com.example.gurlar zsh Tools/...
 PKG=${CARDBOARDXR_BUNDLE_ID:-com.rocketleague.gurlar}
 LOGS=${TMPDIR:-/tmp}/cardboardxr
+APK=$P/Builds/CardboardXR.apk
 mkdir -p $LOGS
 cd $P || exit 1
-if pgrep -f "Unity.app/Contents/MacOS/Unity" >/dev/null; then echo "Unity is running; close it first"; exit 1; fi
+
+INSTALL_ONLY=0
+LAUNCH_ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--install-only" ]; then
+        INSTALL_ONLY=1
+    else
+        LAUNCH_ARGS+=("$arg")
+    fi
+done
+set -- "${LAUNCH_ARGS[@]}"
+
+if [ $INSTALL_ONLY -eq 0 ] && pgrep -f "Unity.app/Contents/MacOS/Unity" >/dev/null; then
+    echo "Unity is running; close it first"
+    exit 1
+fi
 
 # Prefer an explicit serial (emulator script sets this), else -e when CARDBOARDXR_EMULATOR=1.
 ADB=(adb)
@@ -27,6 +45,124 @@ if [ -n "${CARDBOARDXR_ANDROID_SERIAL:-}" ]; then
     ADB=(adb -s "$CARDBOARDXR_ANDROID_SERIAL")
 elif [ "${CARDBOARDXR_EMULATOR:-}" = "1" ]; then
     ADB=(adb -e)
+fi
+
+usb_android_hint() {
+    # macOS sees the phone over USB even when USB debugging is off; adb does not.
+    if command -v ioreg >/dev/null 2>&1; then
+        ioreg -p IOUSB -w0 2>/dev/null | grep -E 'Android|SAMSUNG_Android|Pixel|OnePlus|Xiaomi|Huawei' || true
+    fi
+}
+
+adb_ready() {
+    adb start-server >/dev/null 2>&1
+    if [ -n "${CARDBOARDXR_ANDROID_SERIAL:-}" ]; then
+        "${ADB[@]}" get-state 2>/dev/null | grep -q device
+        return $?
+    fi
+    if [ "${CARDBOARDXR_EMULATOR:-}" = "1" ]; then
+        "${ADB[@]}" get-state 2>/dev/null | grep -q device
+        return $?
+    fi
+    adb devices 2>/dev/null | awk 'NR>1 && $2=="device" {found=1} END{exit found?0:1}'
+}
+
+describe_adb() {
+    echo "adb devices:"
+    adb devices -l
+    local usb
+    usb=$(usb_android_hint)
+    if [ -n "$usb" ]; then
+        echo "USB Android is plugged in, but ADB can't talk to it yet:"
+        echo "$usb" | sed 's/^/  /'
+        echo "On the phone: unlock → Developer options → USB debugging ON."
+        echo "Pull down the USB notification → File transfer / MTP (not Charging only)."
+        echo "Accept the 'Allow USB debugging?' prompt if it appears."
+    else
+        echo "No Android phone/emulator is visible to ADB."
+        echo "Plug in a phone with USB debugging, or: make android-emu"
+    fi
+}
+
+# Wait for a usable device. Default 120 s after the build so a late USB-debug prompt can be accepted.
+wait_for_adb() {
+    local seconds=${1:-120}
+    local i state
+    if adb_ready; then
+        return 0
+    fi
+    echo "== waiting up to ${seconds}s for an ADB device"
+    describe_adb
+    for i in $(seq 1 $seconds); do
+        sleep 1
+        if adb_ready; then
+            echo "== ADB device ready"
+            adb devices -l
+            return 0
+        fi
+        # Re-probe every 15 s in case the phone flipped into debugging mode.
+        if (( i % 15 == 0 )); then
+            adb kill-server >/dev/null 2>&1
+            adb start-server >/dev/null 2>&1
+            echo "  …still waiting (${i}s). Unlock the phone and accept USB debugging if prompted."
+        fi
+    done
+    describe_adb
+    return 1
+}
+
+install_and_launch() {
+    if [ ! -f $APK ]; then
+        echo "Missing $APK — build first (make install-android), or pass without --install-only."
+        exit 1
+    fi
+    if ! wait_for_adb "${CARDBOARDXR_ADB_WAIT:-120}"; then
+        echo "Install failed; not launching."
+        echo "Fix USB debugging, then reuse this APK with: make install-android-apk"
+        echo "Or use an emulator: make android-emu"
+        exit 1
+    fi
+
+    echo "== install (${ADB[*]} → $APK)"
+    # Stop it first: installing over the running app and then launching crashes Unity's activity.
+    "${ADB[@]}" shell am force-stop $PKG >/dev/null 2>&1 || true
+    # Stop unless it installs: launching anyway would start the build already on the phone, and its logs
+    # would look like the new one's. USB drops are common, so this happens.
+    local INSTALL
+    INSTALL=$("${ADB[@]}" install -r $APK 2>&1 | tee /dev/stderr | tail -1)
+    case "$INSTALL" in
+        *Success*) ;;
+        *)
+            echo "Install failed; not launching. Run 'adb kill-server; adb start-server', check 'adb devices', then:"
+            echo "  make install-android-apk"
+            exit 1
+            ;;
+    esac
+    "${ADB[@]}" logcat -c
+    "${ADB[@]}" shell am start -W -n $PKG/com.unity3d.player.UnityPlayerGameActivity "$@" | grep -E "Status|LaunchState"
+    sleep 32
+    "${ADB[@]}" logcat -d -s Unity:V AndroidRuntime:E | grep -E "\[Demos\]|\[AR\]|\[Pose\]|\[Room\]|\[Anchor\]|\[Hands\]|\[Pinch\]|\[Perf\]|\[Passthrough\]|\[Frames\]|\[Hitch\]|\[Stereo\] (Head|Preferred)|Exception|FATAL" | grep -v AssetPackManager | cut -c1-300 | head -40
+    echo "== display votes"
+    "${ADB[@]}" shell dumpsys display 2>/dev/null | grep -A14 "mVotesByDisplay" | grep -E "PRIORITY" | cut -c1-160 | head -10 || true
+    echo "== temperatures"
+    "${ADB[@]}" shell dumpsys thermalservice 2>/dev/null | sed -n '/Current temperatures from HAL:/,/Current cooling/p' | grep -oE "mValue=[0-9.]+, mType=[0-9]+, mName=[A-Za-z_-]+" | grep -iE "skin|battery|cpu|gpu" | head -8 || true
+    echo "== the whole session log: adb pull /storage/emulated/0/Android/data/$PKG/files/session.log"
+}
+
+if [ $INSTALL_ONLY -eq 1 ]; then
+    install_and_launch "$@"
+    exit 0
+fi
+
+# Fail before the long Unity build when nothing can receive the APK.
+if ! adb_ready; then
+    echo "== no ADB device yet; checking before the build"
+    describe_adb
+    if ! wait_for_adb "${CARDBOARDXR_ADB_WAIT_BEFORE:-45}"; then
+        echo "Aborting before Unity build. Enable USB debugging (or start an emulator), then re-run."
+        echo "If Builds/CardboardXR.apk already exists: make install-android-apk"
+        exit 1
+    fi
 fi
 
 echo "== EditMode tests"
@@ -51,24 +187,4 @@ $U -batchmode -projectPath $P -buildTarget Android -executeMethod ProjectBootstr
 grep -E "\[Build\]|error CS" $LOGS/build.log | head -20
 grep -q "Build Succeeded" $LOGS/build.log || exit 1
 
-echo "== install (${ADB[*]})"
-adb start-server >/dev/null 2>&1
-# Stop it first: installing over the running app and then launching crashes Unity's activity.
-"${ADB[@]}" shell am force-stop $PKG
-# Stop unless it installs: launching anyway would start the build already on the phone, and its logs
-# would look like the new one's. USB drops are common, so this happens.
-INSTALL=$("${ADB[@]}" install -r Builds/CardboardXR.apk 2>&1 | tail -1)
-echo "$INSTALL"
-case "$INSTALL" in
-    *Success*) ;;
-    *) echo "Install failed; not launching. Run 'adb kill-server; adb start-server', check 'adb devices', then run this again."; exit 1 ;;
-esac
-"${ADB[@]}" logcat -c
-"${ADB[@]}" shell am start -W -n $PKG/com.unity3d.player.UnityPlayerGameActivity "$@" | grep -E "Status|LaunchState"
-sleep 32
-"${ADB[@]}" logcat -d -s Unity:V AndroidRuntime:E | grep -E "\[Demos\]|\[AR\]|\[Pose\]|\[Room\]|\[Anchor\]|\[Hands\]|\[Pinch\]|\[Perf\]|\[Passthrough\]|\[Frames\]|\[Hitch\]|\[Stereo\] (Head|Preferred)|Exception|FATAL" | grep -v AssetPackManager | cut -c1-300 | head -40
-echo "== display votes"
-"${ADB[@]}" shell dumpsys display 2>/dev/null | grep -A14 "mVotesByDisplay" | grep -E "PRIORITY" | cut -c1-160 | head -10 || true
-echo "== temperatures"
-"${ADB[@]}" shell dumpsys thermalservice 2>/dev/null | sed -n '/Current temperatures from HAL:/,/Current cooling/p' | grep -oE "mValue=[0-9.]+, mType=[0-9]+, mName=[A-Za-z_-]+" | grep -iE "skin|battery|cpu|gpu" | head -8 || true
-echo "== the whole session log: adb pull /storage/emulated/0/Android/data/$PKG/files/session.log"
+install_and_launch "$@"

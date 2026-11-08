@@ -178,26 +178,73 @@
     });
   }
 
+  // A dropped network during page load must not strand the page on a dead "Reload" status:
+  // retry the relay library itself, slowly, until it arrives.
+  function loadMqttWithRetry() {
+    var delayMs = 1000;
+    function attemptLoad() {
+      return loadMqtt().catch(function (err) {
+        setStatus("Reconnecting…");
+        log("relay library load failed: " + (err && err.message ? err.message : err) +
+          "; retrying in " + delayMs + " ms");
+        return new Promise(function (resolve) { setTimeout(resolve, delayMs); }).then(function () {
+          delayMs = Math.min(5000, Math.round(delayMs * 1.6));
+          return attemptLoad();
+        });
+      });
+    }
+    return attemptLoad();
+  }
+
   // Connects to the first broker that answers; onConnect runs on every (re)connect, which is
-  // when subscriptions and the host's hello must be (re)sent.
+  // when subscriptions and the host's hello must be (re)sent. Callers can ask the returned
+  // state whether the relay is actually connected, and forceReconnect when it has gone
+  // quiet instead of merely hoping MQTT's own reconnect timer notices a half-open socket.
   function connectRelay(mqtt, clientId, onConnect, onMessage) {
-    var state = { client: null, brokerIndex: 0, stopped: false };
+    var state = { client: null, brokerIndex: 0, stopped: false, connected: false, downSince: Date.now() };
+    var attemptTimer = null;
+
+    function clearAttemptTimer() {
+      if (attemptTimer) clearTimeout(attemptTimer);
+      attemptTimer = null;
+    }
+
+    function fail(client, reason) {
+      if (state.stopped || state.client !== client || state.connected) return;
+      log("relay " + reason + "; trying the next broker");
+      state.brokerIndex++;
+      state.client = null;
+      try { client.end(true); } catch (e) {}
+      attempt();
+    }
+
+    function markDown(client) {
+      if (state.client !== client) return;
+      if (state.connected) log("relay disconnected; reconnecting");
+      state.connected = false;
+      if (!state.downSince) state.downSince = Date.now();
+    }
 
     function attempt() {
       if (state.stopped) return;
+      clearAttemptTimer();
       var url = BROKERS[state.brokerIndex % BROKERS.length];
       log("relay " + url);
       var client = mqtt.connect(url, {
         clientId: clientId + "-" + randomSuffix(),
         reconnectPeriod: 1500,
-        connectTimeout: 10000,
+        connectTimeout: 8000,
         queueQoSZero: false,
         clean: true,
       });
       state.client = client;
-      var connected = false;
+      state.connected = false;
+      state.downSince = Date.now();
+      attemptTimer = setTimeout(function () { fail(client, "connect timed out"); }, 10000);
       client.on("connect", function () {
-        connected = true;
+        clearAttemptTimer();
+        state.connected = true;
+        state.downSince = 0;
         onConnect(client);
       });
       client.on("message", function (topic, payload) {
@@ -205,19 +252,34 @@
       });
       client.on("error", function (err) {
         log("relay error " + (err && err.message ? err.message : err));
-        if (!connected && !state.stopped) {
-          // First broker never answered (blocked or down): fall over to the next one.
-          state.brokerIndex++;
-          try { client.end(true); } catch (e) {}
-          attempt();
-        }
+        if (!state.connected) fail(client, "connect failed");
       });
+      client.on("close", function () { markDown(client); });
+      client.on("offline", function () { markDown(client); });
+      client.on("reconnect", function () { log("relay reconnecting"); });
     }
 
     attempt();
+    state.forceReconnect = function (reason) {
+      if (state.stopped) return;
+      log("relay force reconnect: " + reason);
+      clearAttemptTimer();
+      var old = state.client;
+      state.client = null;
+      state.connected = false;
+      state.downSince = Date.now();
+      // Same broker first: the other side of the pair is probably still on it, and
+      // splitting the pair across brokers would strand them apart. fail() moves on
+      // to the next broker only if this attempt doesn't get through.
+      try { if (old) old.end(true); } catch (e) {}
+      attempt();
+    };
     state.end = function () {
       state.stopped = true;
+      clearAttemptTimer();
       try { if (state.client) state.client.end(true); } catch (e) {}
+      state.client = null;
+      state.connected = false;
     };
     return state;
   }
@@ -234,6 +296,7 @@
     var lastFrameAt = 0;
     var helloAt = 0;
     var currentToken = "";
+    var relayDownSince = 0;
     var ctx = viewEl && viewEl.getContext ? viewEl.getContext("2d") : null;
     var img = new Image();
     var lastUrl = null;
@@ -332,11 +395,24 @@
     setInterval(function () {
       if (stopped) return;
       window.__castDiag = { frames: window.__castFrames || 0, live: live, phone: phoneHere };
+      var relayConnected = !!(relay && relay.connected && relay.client && relay.client.connected);
+      if (!relayConnected) {
+        if (!relayDownSince) relayDownSince = Date.now();
+        else if (relay && Date.now() - relayDownSince > 25000) {
+          relayDownSince = Date.now();
+          relay.forceReconnect("viewer relay offline");
+        }
+        if (live) setStatus("Waiting…");
+        return;
+      }
+      relayDownSince = 0;
       if (!live) return;
       // Silence since the last frame (or the hello, before the first frame): a phone that
-      // died without saying goodbye eventually hands the page back to the QR.
+      // died without saying goodbye eventually hands the page back to the QR. Generous,
+      // because a relay reconnect on a flaky network can take a while and the stream
+      // should resume into the same pairing, not be declared dead early.
       var quiet = Date.now() - Math.max(lastFrameAt, helloAt);
-      if (quiet > 20000) {
+      if (quiet > 45000) {
         waiting();
         return;
       }
@@ -402,6 +478,15 @@
     var otherHelloAt = 0;
     var heartbeatTimer = null;
     var claimTimer = null;
+    var lastSelfHelloAt = 0;
+    var relayDownSince = 0;
+    // Latest-frame-only sending: one frame in flight, and a newer frame replaces the
+    // pending one instead of queueing behind it. A live view wants the newest picture,
+    // never a backlog of stale ones fighting the socket.
+    var sendingFrame = false;
+    var pendingDataUrl = null;
+    var frameGeneration = 0;
+    var lastFrameSentAt = 0;
 
     function publishHello(on) {
       var client = relay && relay.client;
@@ -423,6 +508,7 @@
       yielding = false;
       claimed = true;
       claimTs = Date.now();
+      lastSelfHelloAt = Date.now();
       publishHello(true);
       setStatus("streaming to room " + code);
       if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -431,7 +517,14 @@
 
     function onHello(topic, payload) {
       var hello = parseHello(payload);
-      if (!hello || hello.token === token) return;
+      if (!hello) return;
+      if (hello.token === token) {
+        // The broker echoes our retained heartbeat back to us. That round trip is the
+        // host's end-to-end relay health check: a socket can look connected long after
+        // it has stopped delivering anything.
+        if (hello.on) lastSelfHelloAt = Date.now();
+        return;
+      }
       if (hello.on) {
         otherToken = hello.token;
         otherHelloAt = hello.ts || Date.now();
@@ -451,8 +544,13 @@
     }
 
     relay = connectRelay(mqtt, "gurlar-host", function (client) {
+      // A rebuilt connection invalidates any frame still marked in flight from the old one.
+      frameGeneration++;
+      sendingFrame = false;
+      pendingDataUrl = null;
       client.subscribe(helloTopic(code), { qos: 0 });
       if (claimed) {
+        lastSelfHelloAt = Date.now();
         publishHello(true);
         return;
       }
@@ -461,14 +559,41 @@
       claimTimer = setTimeout(tryClaim, 1200);
     }, onHello);
 
-    // While yielding, keep checking whether the holder has gone away.
+    // While yielding, keep checking whether the holder has gone away. This also watches
+    // the relay itself: if the socket drops and stays down, or our own heartbeat stops
+    // coming back from the broker, rebuild the connection instead of dropping frames
+    // into a dead client forever.
     var yieldTimer = setInterval(function () {
-      window.__castState = { claimed: claimed, yielding: yielding, other: otherToken, sent: sent, dropped: dropped };
-      if (!stopped && !claimed) tryClaim();
+      var relayConnected = !!(relay && relay.connected && relay.client && relay.client.connected);
+      window.__castState = {
+        claimed: claimed, yielding: yielding, other: otherToken, sent: sent, dropped: dropped,
+        connected: relayConnected, lastSelfHelloAt: lastSelfHelloAt, lastFrameSentAt: lastFrameSentAt,
+        sendingFrame: sendingFrame, hasPendingFrame: !!pendingDataUrl,
+      };
+      if (stopped) return;
+      if (!relayConnected) {
+        if (!relayDownSince) relayDownSince = Date.now();
+        else if (relay && Date.now() - relayDownSince > 25000) {
+          relayDownSince = Date.now();
+          relay.forceReconnect("host relay offline");
+        }
+        return;
+      }
+      relayDownSince = 0;
+      if (claimed && lastSelfHelloAt && Date.now() - lastSelfHelloAt > 30000) {
+        // Give the rebuilt connection a fresh grace period before judging it again.
+        lastSelfHelloAt = Date.now();
+        relay.forceReconnect("host heartbeat stopped returning");
+        return;
+      }
+      if (!claimed) tryClaim();
     }, 1500);
 
     function destroy() {
       stopped = true;
+      frameGeneration++;
+      sendingFrame = false;
+      pendingDataUrl = null;
       if (claimTimer) clearTimeout(claimTimer);
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (yieldTimer) clearInterval(yieldTimer);
@@ -479,20 +604,93 @@
       if (relay) relay.end();
     }
 
+    // Best-effort look at the WebSocket's unsent bytes, where the MQTT browser client
+    // exposes them. Above this, a new frame would only arrive late: drop it instead.
+    function socketBufferedBytes(client) {
+      try {
+        var stream = client && client.stream;
+        var socket = stream && (stream.socket || stream._socket || stream.ws || stream._ws);
+        return socket && typeof socket.bufferedAmount === "number" ? socket.bufferedAmount : 0;
+      } catch (e) { return 0; }
+    }
+
+    function finishSend(generation) {
+      if (generation !== frameGeneration) return;
+      sendingFrame = false;
+      var next = pendingDataUrl;
+      pendingDataUrl = null;
+      if (next && !stopped) sendDataUrl(next);
+    }
+
+    function publishBytes(bytes, generation) {
+      var client = relay && relay.client;
+      if (stopped || !claimed || !client || !client.connected) {
+        dropped++;
+        finishSend(generation);
+        return;
+      }
+      if (socketBufferedBytes(client) > 196608) {
+        dropped++;
+        finishSend(generation);
+        return;
+      }
+      try {
+        client.publish(frameTopic(code), bytes, { qos: 0 }, function (err) {
+          if (generation !== frameGeneration) return;
+          if (err) {
+            dropped++;
+            log("frame publish failed: " + (err.message || err));
+          } else {
+            sent++;
+            lastFrameSentAt = Date.now();
+            if (sent % 120 === 0) log("frames sent " + sent + ", dropped " + dropped);
+          }
+          finishSend(generation);
+        });
+      } catch (e) {
+        dropped++;
+        finishSend(generation);
+      }
+    }
+
+    function decodeFallback(dataUrl, generation) {
+      var comma = dataUrl.indexOf(",");
+      var binary = atob(comma >= 0 ? dataUrl.substring(comma + 1) : dataUrl);
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      publishBytes(bytes, generation);
+    }
+
+    function sendDataUrl(dataUrl) {
+      var generation = ++frameGeneration;
+      sendingFrame = true;
+      if (typeof fetch === "function") {
+        fetch(dataUrl)
+          .then(function (response) { return response.arrayBuffer(); })
+          .then(function (buffer) { publishBytes(new Uint8Array(buffer), generation); })
+          .catch(function () {
+            try { decodeFallback(dataUrl, generation); }
+            catch (e) { dropped++; finishSend(generation); }
+          });
+        return;
+      }
+      try { decodeFallback(dataUrl, generation); }
+      catch (e) { dropped++; finishSend(generation); }
+    }
+
     window.__cast = {
       pushFrame: function (dataUrl) {
-        var client = relay && relay.client;
-        if (stopped || !claimed || !dataUrl || !client || !client.connected) {
+        if (stopped || !claimed || !dataUrl) {
           dropped++;
           return;
         }
-        var comma = dataUrl.indexOf(",");
-        var binary = atob(comma >= 0 ? dataUrl.substring(comma + 1) : dataUrl);
-        var bytes = new Uint8Array(binary.length);
-        for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        client.publish(frameTopic(code), bytes, { qos: 0 });
-        sent++;
-        if (sent % 120 === 0) log("frames sent " + sent + ", dropped " + dropped);
+        if (sendingFrame) {
+          // Keep only the newest waiting frame; the replaced one is dropped on purpose.
+          if (pendingDataUrl) dropped++;
+          pendingDataUrl = dataUrl;
+          return;
+        }
+        sendDataUrl(dataUrl);
       },
       setStatus: setStatus,
       destroy: destroy,
@@ -510,9 +708,8 @@
         return;
       }
       show(pairEl, false);
-      loadMqtt()
-        .then(function (mqtt) { startHost(mqtt, room); })
-        .catch(function (err) { setStatus(err.message || String(err)); });
+      loadMqttWithRetry()
+        .then(function (mqtt) { startHost(mqtt, room); });
       return;
     }
 
@@ -526,12 +723,8 @@
     showPairingQr(room, aspect);
     setStatus("Scan QR");
 
-    loadMqtt()
-      .then(function (mqtt) { startViewer(mqtt); })
-      .catch(function (err) {
-        setStatus("Reload");
-        log(err && err.message ? err.message : String(err));
-      });
+    loadMqttWithRetry()
+      .then(function (mqtt) { startViewer(mqtt); });
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

@@ -48,6 +48,34 @@ namespace CardboardXR.Stereo.Tests
         }
 
         [Test]
+        public void HostPageRetriesOnlyWhileCastingAndNotReady()
+        {
+            Assert.IsTrue(WebRtcCastHost.ShouldRetryHostPage(true, false, 10f, 10f));
+            Assert.IsTrue(WebRtcCastHost.ShouldRetryHostPage(true, false, 11f, 10f));
+            Assert.IsFalse(WebRtcCastHost.ShouldRetryHostPage(true, false, 9f, 10f),
+                "still inside the page's load grace period");
+            Assert.IsFalse(WebRtcCastHost.ShouldRetryHostPage(true, true, 11f, 10f),
+                "a ready page owns its own relay reconnection");
+            Assert.IsFalse(WebRtcCastHost.ShouldRetryHostPage(false, false, 11f, 10f),
+                "not casting: nothing to recover");
+        }
+
+        [Test]
+        public void NetworkReturnIsOnlyFromUnreachable()
+        {
+            Assert.IsTrue(WebRtcCastHost.NetworkReturned(
+                NetworkReachability.NotReachable, NetworkReachability.ReachableViaLocalAreaNetwork));
+            Assert.IsTrue(WebRtcCastHost.NetworkReturned(
+                NetworkReachability.NotReachable, NetworkReachability.ReachableViaCarrierDataNetwork));
+            Assert.IsFalse(WebRtcCastHost.NetworkReturned(
+                NetworkReachability.ReachableViaLocalAreaNetwork, NetworkReachability.ReachableViaCarrierDataNetwork),
+                "switching networks is not a return from offline");
+            Assert.IsFalse(WebRtcCastHost.NetworkReturned(
+                NetworkReachability.ReachableViaLocalAreaNetwork, NetworkReachability.NotReachable),
+                "losing the network is not its return");
+        }
+
+        [Test]
         public void RestartCastIssuesANewRoom()
         {
             var host = new GameObject("Cast Host").AddComponent<WebRtcCastHost>();
@@ -115,19 +143,50 @@ namespace CardboardXR.Stereo.Tests
         [Test]
         public void CastFrameFollowsTheWebsitesAspect()
         {
-            Assert.That(WebRtcCastHost.FrameSizeFor(16f / 9f), Is.EqualTo(new Vector2Int(960, 540)));
-            Assert.That(WebRtcCastHost.FrameSizeFor(1.6f), Is.EqualTo(new Vector2Int(864, 540)));
+            Assert.That(WebRtcCastHost.FrameSizeFor(16f / 9f), Is.EqualTo(new Vector2Int(640, 360)));
+            Assert.That(WebRtcCastHost.FrameSizeFor(1.6f), Is.EqualTo(new Vector2Int(576, 360)));
 
             var host = new GameObject("Cast Host").AddComponent<WebRtcCastHost>();
             host.StartCast("aspect01", 1.6f);
-            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(864, 540)));
+            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(576, 360)));
             host.RestartCast("aspect02");
-            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(864, 540)));
+            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(576, 360)));
             host.StopCast();
             host.StartCast("aspect03");
-            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(960, 540)));
+            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(640, 360)));
             host.StopCast();
             Object.DestroyImmediate(host.gameObject);
+        }
+
+        [Test]
+        public void StreamProfilesGetLighterAsTheyStepDown()
+        {
+            for (var level = 1; level < WebRtcCastHost.k_ProfileCount; level++)
+            {
+                Assert.That(WebRtcCastHost.ProfileHeight(level), Is.LessThan(WebRtcCastHost.ProfileHeight(level - 1)));
+                Assert.That(WebRtcCastHost.ProfileQuality(level), Is.LessThan(WebRtcCastHost.ProfileQuality(level - 1)));
+                Assert.That(WebRtcCastHost.ProfileInterval(level), Is.GreaterThan(WebRtcCastHost.ProfileInterval(level - 1)),
+                    "lighter profiles also send less often");
+            }
+            Assert.That(WebRtcCastHost.FrameSizeFor(16f / 9f, 0), Is.EqualTo(new Vector2Int(960, 540)));
+            Assert.That(WebRtcCastHost.FrameSizeFor(16f / 9f, WebRtcCastHost.k_ProfileCount - 1),
+                Is.EqualTo(new Vector2Int(384, 216)));
+        }
+
+        [Test]
+        public void HeavyFramesStepDownAndLightStreaksStepBackUp()
+        {
+            Assert.That(WebRtcCastHost.NextProfileLevel(2, 50_000, 0), Is.EqualTo(3),
+                "a heavy frame steps down at once");
+            Assert.That(WebRtcCastHost.NextProfileLevel(WebRtcCastHost.k_ProfileCount - 1, 50_000, 0),
+                Is.EqualTo(WebRtcCastHost.k_ProfileCount - 1), "already at the lightest profile");
+            Assert.That(WebRtcCastHost.NextProfileLevel(2, 30_000, 0), Is.EqualTo(2),
+                "a mid-size frame holds the profile");
+            Assert.That(WebRtcCastHost.NextProfileLevel(2, 10_000, 59), Is.EqualTo(2),
+                "light frames must be sustained before stepping up");
+            Assert.That(WebRtcCastHost.NextProfileLevel(2, 10_000, 60), Is.EqualTo(1));
+            Assert.That(WebRtcCastHost.NextProfileLevel(0, 10_000, 100), Is.EqualTo(0),
+                "already at the best profile");
         }
 
         [Test]
