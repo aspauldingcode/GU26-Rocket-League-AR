@@ -194,6 +194,51 @@
     try { if (peer && !peer.destroyed) peer.destroy(); } catch (e) {}
   }
 
+  // Explicit relays: PeerJS defaults alone left phone and laptop unable to reach each other
+  // (the channel never opened, so the page sat on "Connecting…"). TURN over TCP 443 gets
+  // through most Wi-Fi and campus networks.
+  var ICE_CONFIG = {
+    iceServers: [
+      { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+      { urls: "stun:stun.cloudflare.com:3478" },
+      {
+        urls: ["turn:eu-0.turn.peerjs.com:3478", "turn:us-0.turn.peerjs.com:3478"],
+        username: "peerjs",
+        credential: "peerjsp",
+      },
+      {
+        urls: [
+          "turn:openrelay.metered.ca:80",
+          "turn:openrelay.metered.ca:443",
+          "turn:openrelay.metered.ca:443?transport=tcp",
+        ],
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+    ],
+  };
+
+  function peerOptions() {
+    return { debug: 1, config: ICE_CONFIG };
+  }
+
+  // Reports ICE state; onFailure fires once when the path between the two ends is dead.
+  // addEventListener, not oniceconnectionstatechange: PeerJS has its own handler there.
+  function watchIce(conn, tag, onFailure) {
+    var pc = conn && conn.peerConnection;
+    if (!pc || !pc.addEventListener) return;
+    var failed = false;
+    pc.addEventListener("iceconnectionstatechange", function () {
+      var state = pc.iceConnectionState;
+      log(tag + " ice " + state);
+      window.__castIce = state;
+      if ((state === "failed" || state === "closed") && !failed) {
+        failed = true;
+        if (onFailure) onFailure(state);
+      }
+    });
+  }
+
   function blockCameraSync() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
     navigator.mediaDevices.getUserMedia = function () {
@@ -324,6 +369,8 @@
       draw(frame);
     }
 
+    var attachAt = 0;
+
     function attach(c) {
       if (conn && conn !== c) {
         try { conn.close(); } catch (e) {}
@@ -331,7 +378,11 @@
       conn = c;
       assembler = new FrameAssembler();
       lastFrameAt = 0;
+      attachAt = Date.now();
       setStatus("Connecting…");
+      watchIce(c, "view", function () {
+        if (conn === c && !stopped) setStatus("No signal");
+      });
       c.on("data", function (data) {
         if (conn === c) onData(data);
       });
@@ -365,7 +416,7 @@
       clearTimeout(timer);
       var gen = ++generation;
       destroyPeer(peer);
-      peer = new Peer(viewerPeerId(code), { debug: 1 });
+      peer = new Peer(viewerPeerId(code), peerOptions());
       peer.on("open", function () {
         if (gen !== generation || stopped) return;
         delay = RETRY_START_MS;
@@ -397,7 +448,19 @@
     }
 
     setInterval(function () {
-      if (!live || stopped) return;
+      if (stopped) return;
+      window.__castDiag = {
+        ice: window.__castIce || "",
+        frames: window.__castFrames || 0,
+        live: live,
+        connected: !!conn,
+      };
+      if (!live) {
+        // Attached but silent: the phone dialled, yet no byte crossed. Say so instead of
+        // showing "Connecting…" forever; the phone keeps redialling on its own.
+        if (conn && Date.now() - attachAt > 12000) setStatus("No signal");
+        return;
+      }
       var quiet = Date.now() - lastFrameAt;
       if (quiet > LOST_MS && !conn) waiting("Scan QR");
       else if (quiet > STALL_MS) setStatus("Waiting…");
@@ -507,6 +570,11 @@
         return;
       }
       conn = c;
+      watchIce(c, "host", function () {
+        if (conn !== c || stopped) return;
+        conn = null;
+        scheduleDial("network path failed, redialing");
+      });
       clearTimeout(openGuard);
       openGuard = setTimeout(function () {
         if (conn === c && !c.open) {
@@ -540,7 +608,7 @@
       closeConn();
       destroyPeer(peer);
       // A random id: nothing to collide with when Share restarts quickly.
-      var p = new Peer(undefined, { debug: 1 });
+      var p = new Peer(undefined, peerOptions());
       peer = p;
       setStatus("connecting to room " + code);
       p.on("open", function () {
