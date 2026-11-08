@@ -1,22 +1,14 @@
 /* External display for the AR app's mono view.
-   The page owns the room: it registers gurlar-view-{room} on PeerJS and shows a QR for it.
-   Share on the phone scans the QR, opens this page hidden as ?role=host, and dials the page.
-   Frames are JPEGs pushed by Unity, sent over a reliable data channel in chunks, newest wins.
-   No media tracks: an empty-stream call carried no video, and canvas capture stalls in hidden
-   WebViews, which is why the page never updated. */
+   The page owns the room and shows a QR for it. Share in the app scans the QR, opens this page
+   hidden as ?role=host, and both sides meet on a WebSocket relay (MQTT over WSS): the phone
+   publishes JPEG frames, this page draws them. No WebRTC — its data channel from inside the
+   app's WebView never opened, so the page sat on "Connecting…" while nothing crossed. */
 (function () {
   "use strict";
 
-  var PEER_PREFIX = "gurlar-";
-  var RETRY_START_MS = 400;
-  var RETRY_MAX_MS = 3000;
-  var CHUNK_CHARS = 16000;
-  // Drop a frame rather than queue it behind a slow link: a live view wants the newest.
-  var MAX_BUFFERED_BYTES = 512 * 1024;
-  var OPEN_TIMEOUT_MS = 8000;
-  var STALL_MS = 4000;
-  var LOST_MS = 15000;
-  var JPEG_PREFIX = "data:image/jpeg;base64,";
+  var BROKERS = ["wss://broker.emqx.io:8084/mqtt", "wss://test.mosquitto.org:8081/mqtt"];
+  var TOPIC_PREFIX = "gurlar/v1/";
+  var STALL_MS = 5000;
 
   var params = new URLSearchParams(location.search);
   var room = (params.get("room") || "").trim().toLowerCase();
@@ -32,6 +24,7 @@
   var actionsEl = document.getElementById("actions");
   var reconnectBtn = document.getElementById("reconnect");
   var leaveBtn = document.getElementById("leave");
+  var liveStatusEl = document.getElementById("live-status");
 
   function log(text) {
     try {
@@ -40,8 +33,6 @@
     } catch (e) {}
     try { console.log("[cast] " + text); } catch (e) {}
   }
-
-  var liveStatusEl = document.getElementById("live-status");
 
   function setStatus(text) {
     if (statusEl) statusEl.textContent = text || "";
@@ -53,17 +44,6 @@
     if (el) el.style.display = on ? "" : "none";
   }
 
-  function viewerPeerId(code) {
-    return PEER_PREFIX + "view-" + code;
-  }
-
-  function nextRetryMs(current) {
-    var n = Math.floor((current || RETRY_START_MS) * 1.6);
-    if (n < RETRY_START_MS) n = RETRY_START_MS;
-    if (n > RETRY_MAX_MS) n = RETRY_MAX_MS;
-    return n;
-  }
-
   function newRoomCode() {
     var alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
     var out = "";
@@ -71,6 +51,10 @@
     (window.crypto || window.msCrypto).getRandomValues(bytes);
     for (var i = 0; i < bytes.length; i++) out += alphabet[bytes[i] % alphabet.length];
     return out;
+  }
+
+  function randomSuffix() {
+    return Math.random().toString(36).slice(2, 8);
   }
 
   // Landscape aspect of the display this page will present on, which the phone renders at.
@@ -89,63 +73,14 @@
       "&aspect=" + aspect.toFixed(3);
   }
 
-  // "F<id>:<index>:<count>:<base64>"; base64 has no ':'.
-  function chunkFrame(id, base64, size) {
-    size = size || CHUNK_CHARS;
-    var count = Math.max(1, Math.ceil(base64.length / size));
-    var out = [];
-    for (var i = 0; i < count; i++)
-      out.push("F" + id + ":" + i + ":" + count + ":" + base64.substr(i * size, size));
-    return out;
-  }
-
-  function FrameAssembler() {
-    this.id = -1;
-    this.count = 0;
-    this.parts = null;
-    this.got = 0;
-    this.lastDone = -1;
-  }
-
-  // Returns the whole base64 frame once its last chunk arrives, else null.
-  FrameAssembler.prototype.push = function (message) {
-    if (typeof message !== "string" || message.charAt(0) !== "F") return null;
-    var a = message.indexOf(":");
-    var b = message.indexOf(":", a + 1);
-    var c = message.indexOf(":", b + 1);
-    if (a < 0 || b < 0 || c < 0) return null;
-    var id = parseInt(message.substring(1, a), 10);
-    var index = parseInt(message.substring(a + 1, b), 10);
-    var count = parseInt(message.substring(b + 1, c), 10);
-    if (!(count > 0) || index < 0 || index >= count || id <= this.lastDone) return null;
-    if (id !== this.id) {
-      if (id < this.id) return null;
-      this.id = id;
-      this.count = count;
-      this.parts = new Array(count);
-      this.got = 0;
-    }
-    if (this.parts[index] === undefined) {
-      this.parts[index] = message.substring(c + 1);
-      this.got++;
-    }
-    if (this.got < this.count) return null;
-    var whole = this.parts.join("");
-    this.lastDone = id;
-    this.parts = null;
-    this.id = -1;
-    return whole;
-  };
+  function frameTopic(code) { return TOPIC_PREFIX + code + "/f"; }
+  function helloTopic(code) { return TOPIC_PREFIX + code + "/h"; }
 
   window.__castLogic = {
-    viewerPeerId: viewerPeerId,
-    nextRetryMs: nextRetryMs,
     newRoomCode: newRoomCode,
     displayAspect: displayAspect,
-    chunkFrame: chunkFrame,
-    FrameAssembler: FrameAssembler,
-    RETRY_START_MS: RETRY_START_MS,
-    RETRY_MAX_MS: RETRY_MAX_MS,
+    frameTopic: frameTopic,
+    helloTopic: helloTopic,
   };
 
   function showPairingQr(code, aspect) {
@@ -190,55 +125,6 @@
     qrEl.appendChild(remote);
   }
 
-  function destroyPeer(peer) {
-    try { if (peer && !peer.destroyed) peer.destroy(); } catch (e) {}
-  }
-
-  // Explicit relays: PeerJS defaults alone left phone and laptop unable to reach each other
-  // (the channel never opened, so the page sat on "Connecting…"). TURN over TCP 443 gets
-  // through most Wi-Fi and campus networks.
-  var ICE_CONFIG = {
-    iceServers: [
-      { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-      { urls: "stun:stun.cloudflare.com:3478" },
-      {
-        urls: ["turn:eu-0.turn.peerjs.com:3478", "turn:us-0.turn.peerjs.com:3478"],
-        username: "peerjs",
-        credential: "peerjsp",
-      },
-      {
-        urls: [
-          "turn:openrelay.metered.ca:80",
-          "turn:openrelay.metered.ca:443",
-          "turn:openrelay.metered.ca:443?transport=tcp",
-        ],
-        username: "openrelayproject",
-        credential: "openrelayproject",
-      },
-    ],
-  };
-
-  function peerOptions() {
-    return { debug: 1, config: ICE_CONFIG };
-  }
-
-  // Reports ICE state; onFailure fires once when the path between the two ends is dead.
-  // addEventListener, not oniceconnectionstatechange: PeerJS has its own handler there.
-  function watchIce(conn, tag, onFailure) {
-    var pc = conn && conn.peerConnection;
-    if (!pc || !pc.addEventListener) return;
-    var failed = false;
-    pc.addEventListener("iceconnectionstatechange", function () {
-      var state = pc.iceConnectionState;
-      log(tag + " ice " + state);
-      window.__castIce = state;
-      if ((state === "failed" || state === "closed") && !failed) {
-        failed = true;
-        if (onFailure) onFailure(state);
-      }
-    });
-  }
-
   function blockCameraSync() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
     navigator.mediaDevices.getUserMedia = function () {
@@ -246,28 +132,23 @@
     };
   }
 
-  function loadPeerJs() {
+  function loadMqtt() {
     return new Promise(function (resolve, reject) {
-      if (window.Peer) {
-        resolve(window.Peer);
+      if (window.mqtt) {
+        resolve(window.mqtt);
         return;
       }
-      // Same-origin first: Safari content blockers often kill unpkg/jsdelivr.
-      var urls = [
-        "peerjs.min.js?v=1.5.4",
-        "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js",
-        "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js",
-      ];
+      var urls = ["mqtt.min.js?v=5.14.1", "https://unpkg.com/mqtt@5.14.1/dist/mqtt.min.js"];
       var i = 0;
       function tryNext() {
         if (i >= urls.length) {
-          reject(new Error("Could not load PeerJS"));
+          reject(new Error("Could not load the relay library"));
           return;
         }
         var script = document.createElement("script");
         script.src = urls[i++];
         script.onload = function () {
-          if (window.Peer) resolve(window.Peer);
+          if (window.mqtt) resolve(window.mqtt);
           else tryNext();
         };
         script.onerror = tryNext;
@@ -277,41 +158,73 @@
     });
   }
 
-  // PeerJS may deliver a string, ArrayBuffer, or Uint8Array depending on serialization.
-  function asText(data) {
-    if (typeof data === "string") return data;
-    if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
-    if (data && data.buffer instanceof ArrayBuffer) {
-      return new TextDecoder().decode(new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength));
+  // Connects to the first broker that answers; onConnect runs on every (re)connect, which is
+  // when subscriptions and the host's hello must be (re)sent.
+  function connectRelay(mqtt, clientId, onConnect, onMessage) {
+    var state = { client: null, brokerIndex: 0, stopped: false };
+
+    function attempt() {
+      if (state.stopped) return;
+      var url = BROKERS[state.brokerIndex % BROKERS.length];
+      log("relay " + url);
+      var client = mqtt.connect(url, {
+        clientId: clientId + "-" + randomSuffix(),
+        reconnectPeriod: 1500,
+        connectTimeout: 10000,
+        queueQoSZero: false,
+        clean: true,
+      });
+      state.client = client;
+      var connected = false;
+      client.on("connect", function () {
+        connected = true;
+        onConnect(client);
+      });
+      client.on("message", function (topic, payload) {
+        if (onMessage) onMessage(topic, payload);
+      });
+      client.on("error", function (err) {
+        log("relay error " + (err && err.message ? err.message : err));
+        if (!connected && !state.stopped) {
+          // First broker never answered (blocked or down): fall over to the next one.
+          state.brokerIndex++;
+          try { client.end(true); } catch (e) {}
+          attempt();
+        }
+      });
     }
-    return null;
+
+    attempt();
+    state.end = function () {
+      state.stopped = true;
+      try { if (state.client) state.client.end(true); } catch (e) {}
+    };
+    return state;
   }
 
   // ---- Viewer: the laptop, an external display for the phone's mono view. ----
 
-  function startViewer(Peer) {
+  function startViewer(mqtt) {
     var aspect = displayAspect(window.screen && screen.width, window.screen && screen.height);
     var code = room;
-    var peer = null;
-    var conn = null;
-    var timer = null;
+    var relay = null;
     var stopped = false;
-    var delay = RETRY_START_MS;
-    var generation = 0;
-    var assembler = new FrameAssembler();
-    var decoding = false;
-    var pending = null;
-    var lastFrameAt = 0;
     var live = false;
+    var phoneHere = false;
+    var lastFrameAt = 0;
     var ctx = viewEl && viewEl.getContext ? viewEl.getContext("2d") : null;
     var img = new Image();
+    var lastUrl = null;
+    var decoding = false;
+    var pendingBlob = null;
 
-    function waiting(reason) {
+    function waiting() {
       live = false;
+      phoneHere = false;
       if (document.body) document.body.classList.remove("live");
       show(stageEl, false);
       showPairingQr(code, aspect);
-      setStatus(reason || "Scan QR");
+      setStatus("Scan QR");
     }
 
     function goLive() {
@@ -324,12 +237,13 @@
       setStatus("Live");
     }
 
-    function draw(base64) {
+    function draw(blob) {
       if (decoding) {
-        pending = base64;
+        pendingBlob = blob;
         return;
       }
       decoding = true;
+      var url = URL.createObjectURL(blob);
       img.onload = function () {
         if (ctx) {
           if (viewEl.width !== img.naturalWidth || viewEl.height !== img.naturalHeight) {
@@ -338,133 +252,61 @@
           }
           ctx.drawImage(img, 0, 0);
         }
+        if (lastUrl) URL.revokeObjectURL(lastUrl);
+        lastUrl = url;
         decoding = false;
-        if (pending) {
-          var next = pending;
-          pending = null;
+        if (pendingBlob) {
+          var next = pendingBlob;
+          pendingBlob = null;
           draw(next);
         }
       };
       img.onerror = function () {
+        URL.revokeObjectURL(url);
         decoding = false;
-        pending = null;
+        pendingBlob = null;
       };
-      img.src = JPEG_PREFIX + base64;
+      img.src = url;
     }
 
-    function onData(data) {
-      var text = asText(data);
-      if (!text) return;
-      // Host hello: flip to the stage immediately; frames paint when they arrive.
-      if (text === "H") {
-        lastFrameAt = Date.now();
-        goLive();
+    function onMessage(topic, payload) {
+      if (topic === helloTopic(code)) {
+        if (payload && payload.length > 0) {
+          phoneHere = true;
+          goLive();
+        } else if (phoneHere) {
+          // The phone said goodbye (Share stopped): back to the QR.
+          waiting();
+        }
         return;
       }
-      var frame = assembler.push(text);
-      if (!frame) return;
+      if (topic !== frameTopic(code) || !payload || payload.length === 0) return;
+      phoneHere = true;
       lastFrameAt = Date.now();
       window.__castFrames = (window.__castFrames || 0) + 1;
       goLive();
-      draw(frame);
-    }
-
-    var attachAt = 0;
-
-    function attach(c) {
-      if (conn && conn !== c) {
-        try { conn.close(); } catch (e) {}
-      }
-      conn = c;
-      assembler = new FrameAssembler();
-      lastFrameAt = 0;
-      attachAt = Date.now();
-      setStatus("Connecting…");
-      watchIce(c, "view", function () {
-        if (conn === c && !stopped) setStatus("No signal");
-      });
-      c.on("data", function (data) {
-        if (conn === c) onData(data);
-      });
-      c.on("close", function () {
-        if (conn !== c || stopped) return;
-        conn = null;
-        setStatus("Waiting…");
-      });
-      c.on("error", function () {
-        if (conn !== c || stopped) return;
-        conn = null;
-      });
-    }
-
-    function schedulePeer(reason) {
-      if (stopped) return;
-      setStatus(reason || "Reconnect…");
-      clearTimeout(timer);
-      timer = setTimeout(connect, delay);
-      delay = nextRetryMs(delay);
-    }
-
-    function newRoom() {
-      code = newRoomCode();
-      history.replaceState({}, "", "?room=" + encodeURIComponent(code));
-      waiting();
+      draw(new Blob([payload], { type: "image/jpeg" }));
     }
 
     function connect() {
-      if (stopped) return;
-      clearTimeout(timer);
-      var gen = ++generation;
-      destroyPeer(peer);
-      peer = new Peer(viewerPeerId(code), peerOptions());
-      peer.on("open", function () {
-        if (gen !== generation || stopped) return;
-        delay = RETRY_START_MS;
+      if (relay) relay.end();
+      relay = connectRelay(mqtt, "gurlar-view-" + code, function (client) {
+        client.subscribe([frameTopic(code), helloTopic(code)], { qos: 0 }, function (err) {
+          if (err) log("subscribe failed " + err.message);
+        });
         if (!live) waiting();
-      });
-      peer.on("connection", function (c) {
-        if (gen !== generation || stopped) {
-          try { c.close(); } catch (e) {}
-          return;
-        }
-        attach(c);
-      });
-      peer.on("disconnected", function () {
-        if (gen !== generation || stopped || peer.destroyed) return;
-        // Signalling only: an open data channel keeps streaming meanwhile.
-        try { peer.reconnect(); } catch (e) { schedulePeer("signalling dropped, retrying…"); }
-      });
-      peer.on("error", function (err) {
-        if (gen !== generation || stopped) return;
-        var type = err && err.type;
-        if (type === "unavailable-id") {
-          newRoom();
-          connect();
-          return;
-        }
-        if (type === "peer-unavailable") return;
-        schedulePeer("connection problem (" + (type || "error") + "), retrying…");
-      });
+      }, onMessage);
     }
 
     setInterval(function () {
       if (stopped) return;
-      window.__castDiag = {
-        ice: window.__castIce || "",
-        frames: window.__castFrames || 0,
-        live: live,
-        connected: !!conn,
-      };
-      if (!live) {
-        // Attached but silent: the phone dialled, yet no byte crossed. Say so instead of
-        // showing "Connecting…" forever; the phone keeps redialling on its own.
-        if (conn && Date.now() - attachAt > 12000) setStatus("No signal");
-        return;
-      }
+      window.__castDiag = { frames: window.__castFrames || 0, live: live, phone: phoneHere };
+      if (!live) return;
       var quiet = Date.now() - lastFrameAt;
-      if (quiet > LOST_MS && !conn) waiting("Scan QR");
-      else if (quiet > STALL_MS) setStatus("Waiting…");
-      else if (statusEl && statusEl.textContent !== "Live") setStatus("Live");
+      if (statusEl) {
+        if (quiet > STALL_MS && phoneHere) setStatus("Waiting…");
+        else if (statusEl.textContent !== "Live") setStatus("Live");
+      }
     }, 1000);
 
     if (stageEl) {
@@ -481,14 +323,10 @@
     }
 
     window.__viewer = {
-      reconnect: function () {
-        delay = RETRY_START_MS;
-        connect();
-      },
+      reconnect: function () { connect(); },
       leave: function () {
         stopped = true;
-        clearTimeout(timer);
-        destroyPeer(peer);
+        if (relay) relay.end();
         location.href = location.pathname + "?t=" + Date.now();
       },
     };
@@ -500,7 +338,7 @@
 
   // ---- Host: hidden WebView inside the AR app. Unity pushes JPEG data URLs. ----
 
-  function startHost(Peer, code) {
+  function startHost(mqtt, code) {
     if (!fromApp) {
       setStatus("open this from the AR app");
       show(pairEl, false);
@@ -510,156 +348,50 @@
     show(actionsEl, false);
     if (roomEl) roomEl.textContent = code;
 
-    var peer = null;
-    var conn = null;
+    var relay = null;
     var stopped = false;
-    var timer = null;
-    var openGuard = null;
-    var delay = RETRY_START_MS;
-    var frameId = 0;
     var sent = 0;
     var dropped = 0;
 
-    function clearTimers() {
-      clearTimeout(timer);
-      clearTimeout(openGuard);
-      timer = openGuard = null;
+    function sayHello(client) {
+      // Retained: a website opened (or refreshed) mid-share sees the phone at once.
+      client.publish(helloTopic(code), "1", { qos: 0, retain: true });
+      setStatus("streaming to room " + code);
     }
 
-    function closeConn() {
-      var c = conn;
-      conn = null;
-      try { if (c) c.close(); } catch (e) {}
-    }
+    relay = connectRelay(mqtt, "gurlar-host", function (client) {
+      sayHello(client);
+    }, null);
 
     function destroy() {
       stopped = true;
-      clearTimers();
-      closeConn();
-      destroyPeer(peer);
-      peer = null;
-    }
-
-    function scheduleDial(reason) {
-      if (stopped) return;
-      setStatus(reason);
-      clearTimeout(timer);
-      timer = setTimeout(dial, delay);
-      delay = nextRetryMs(delay);
-    }
-
-    function scheduleBind(reason) {
-      if (stopped) return;
-      setStatus(reason);
-      clearTimeout(timer);
-      timer = setTimeout(bind, delay);
-      delay = nextRetryMs(delay);
-    }
-
-    function dial() {
-      if (stopped) return;
-      if (!peer || peer.destroyed || !peer.open) {
-        bind();
-        return;
-      }
-      closeConn();
-      // PeerJS 1.5.4 ships raw/json/binary serializers — "raw" sends strings unchanged.
-      var c = peer.connect(viewerPeerId(code), { reliable: true, serialization: "raw" });
-      if (!c) {
-        scheduleDial("could not dial the website, retrying");
-        return;
-      }
-      conn = c;
-      watchIce(c, "host", function () {
-        if (conn !== c || stopped) return;
-        conn = null;
-        scheduleDial("network path failed, redialing");
-      });
-      clearTimeout(openGuard);
-      openGuard = setTimeout(function () {
-        if (conn === c && !c.open) {
-          closeConn();
-          scheduleDial("website did not answer, retrying");
-        }
-      }, OPEN_TIMEOUT_MS);
-      c.on("open", function () {
-        if (conn !== c) return;
-        clearTimeout(openGuard);
-        delay = RETRY_START_MS;
-        setStatus("streaming to room " + code);
-        // Kick the viewer out of "Connecting…" even before the first Unity JPEG lands.
-        try { c.send("H"); } catch (e) {}
-      });
-      c.on("close", function () {
-        if (conn !== c || stopped) return;
-        conn = null;
-        scheduleDial("website closed, redialing");
-      });
-      c.on("error", function () {
-        if (conn !== c || stopped) return;
-        conn = null;
-        scheduleDial("link error, redialing");
-      });
-    }
-
-    function bind() {
-      if (stopped) return;
-      clearTimers();
-      closeConn();
-      destroyPeer(peer);
-      // A random id: nothing to collide with when Share restarts quickly.
-      var p = new Peer(undefined, peerOptions());
-      peer = p;
-      setStatus("connecting to room " + code);
-      p.on("open", function () {
-        if (peer !== p || stopped) return;
-        delay = RETRY_START_MS;
-        dial();
-      });
-      p.on("disconnected", function () {
-        if (peer !== p || stopped || p.destroyed) return;
-        try { p.reconnect(); } catch (e) { scheduleBind("signalling dropped, rebinding"); }
-      });
-      p.on("error", function (err) {
-        if (peer !== p || stopped) return;
-        var type = err && err.type;
-        // The website hasn't registered yet, or reloaded: keep dialing the same room.
-        if (type === "peer-unavailable") {
-          closeConn();
-          scheduleDial("waiting for the website in room " + code);
-          return;
-        }
-        scheduleBind("signalling error (" + (type || "error") + "), rebinding");
-      });
+      try {
+        if (relay && relay.client && relay.client.connected)
+          relay.client.publish(helloTopic(code), "", { qos: 0, retain: true });
+      } catch (e) {}
+      if (relay) relay.end();
     }
 
     window.__cast = {
       pushFrame: function (dataUrl) {
-        var c = conn;
-        if (stopped || !dataUrl || !c || !c.open) return;
-        // Only skip when the WebRTC buffer is actually full. PeerJS bufferSize > 0 while a
-        // multi-chunk JPEG is still flushing, which used to drop every frame after the first.
-        var channel = c.dataChannel;
-        if (channel && channel.bufferedAmount > MAX_BUFFERED_BYTES) {
+        var client = relay && relay.client;
+        if (stopped || !dataUrl || !client || !client.connected) {
           dropped++;
           return;
         }
-        var base64 = dataUrl.indexOf(JPEG_PREFIX) === 0 ? dataUrl.substring(JPEG_PREFIX.length) : dataUrl;
-        var chunks = chunkFrame(++frameId, base64);
-        try {
-          for (var i = 0; i < chunks.length; i++) c.send(chunks[i]);
-          sent++;
-        } catch (e) {
-          scheduleDial("send failed, redialing");
-        }
-        if (frameId % 120 === 0) log("frames sent " + sent + ", dropped " + dropped);
+        var comma = dataUrl.indexOf(",");
+        var binary = atob(comma >= 0 ? dataUrl.substring(comma + 1) : dataUrl);
+        var bytes = new Uint8Array(binary.length);
+        for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        client.publish(frameTopic(code), bytes, { qos: 0 });
+        sent++;
+        if (sent % 120 === 0) log("frames sent " + sent + ", dropped " + dropped);
       },
       setStatus: setStatus,
       destroy: destroy,
     };
 
     window.addEventListener("pagehide", destroy);
-    bind();
   }
 
   function boot() {
@@ -671,8 +403,8 @@
         return;
       }
       show(pairEl, false);
-      loadPeerJs()
-        .then(function (Peer) { startHost(Peer, room); })
+      loadMqtt()
+        .then(function (mqtt) { startHost(mqtt, room); })
         .catch(function (err) { setStatus(err.message || String(err)); });
       return;
     }
@@ -684,8 +416,8 @@
     showPairingQr(room, aspect);
     setStatus("Scan QR");
 
-    loadPeerJs()
-      .then(function (Peer) { startViewer(Peer); })
+    loadMqtt()
+      .then(function (mqtt) { startViewer(mqtt); })
       .catch(function (err) {
         setStatus("Reload");
         log(err && err.message ? err.message : String(err));

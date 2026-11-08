@@ -8,14 +8,14 @@ using ZXing.QrCode;
 
 namespace CardboardXR.Stereo
 {
-    // Private demo cast: the phone publishes a mono UI view to a GitHub Pages watcher over WebRTC.
+    // Private demo cast: the phone publishes a mono UI view to a GitHub Pages watcher over a WebSocket relay.
     // The Pages site only watches; room codes stay in the QR so the open internet does not get a
     // public AR stream, and the site never syncs an ordinary phone camera.
     public static class WebRtcCast
     {
         public const string PagesBaseUrl = "https://aspauldingcode.github.io/GU26-Rocket-League-AR/";
 
-        // Short room id for the QR and PeerJS host id.
+        // Short room id for the QR and the relay topic.
         public static string NewRoomCode()
         {
             const string alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -31,7 +31,7 @@ namespace CardboardXR.Stereo
         public static string ViewerUrl(string room) =>
             $"{PagesBaseUrl}?room={Uri.EscapeDataString(room)}";
 
-        // Cache-bust so a restarted WebView does not keep a dead PeerJS page around.
+        // Cache-bust so a restarted WebView does not keep a dead host page around.
         public static string HostUrl(string room) =>
             $"{PagesBaseUrl}?role=host&unity=1&room={Uri.EscapeDataString(room)}&t={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
 

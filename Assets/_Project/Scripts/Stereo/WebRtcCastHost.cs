@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace CardboardXR.Stereo
 {
-    // Shares a separate off-screen mono render of the scene over PeerJS.
+    // Shares a separate off-screen mono render of the scene over a WebSocket relay.
     // Invariant: never calls StereoRig.SetMono and never draws the cast camera to the phone
     // display — stereo (or whatever the user had) stays on-device; only GH Pages gets mono.
     public class WebRtcCastHost : MonoBehaviour

@@ -4,9 +4,8 @@ using UnityEngine;
 
 namespace CardboardXR.Stereo
 {
-    // Tiny invisible WebView that loads the GitHub Pages host page (webrtc.js) so PeerJS runs in a
-    // real browser engine. Unity only pushes JPEG frames into it; the page sends them to the website
-    // over a data channel.
+    // Tiny invisible WebView that loads the GitHub Pages host page (webrtc.js) in a
+    // real browser engine. Unity only pushes JPEG frames into it; the page relays them to the website.
     public class WebRtcCastWebView : MonoBehaviour
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -43,8 +42,7 @@ namespace CardboardXR.Stereo
         public void Close()
         {
             m_Ready = false;
-            // Drop the PeerJS host id before tearing the WebView down, so a quick New QR
-            // does not hit unavailable-id on a stale registration.
+            // Let the page say goodbye on the relay before tearing the WebView down.
             Eval("try{window.__cast&&window.__cast.destroy&&window.__cast.destroy()}catch(e){}");
 #if UNITY_ANDROID && !UNITY_EDITOR
             CloseAndroid();

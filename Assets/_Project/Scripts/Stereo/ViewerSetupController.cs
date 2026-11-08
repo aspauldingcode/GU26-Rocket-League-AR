@@ -24,13 +24,12 @@ namespace CardboardXR.Stereo
         const float k_RetryDelaySeconds = 2.5f;
         const float k_ToastSeconds = 3f;
         const float k_WorldCastDistance = 1.2f;
-        // Below eye level, so the QR on the laptop, straight ahead, stays clear.
-        const float k_WorldCastPitch = -22f;
+        // Slightly below eye level: in view while looking at the laptop, off the QR itself.
+        const float k_WorldCastPitch = -10f;
         // The hint re-centers once the head turns this far away from it.
         const float k_WorldCastDeadZone = 30f;
-        // In 3DoF the pinch sensor shares its camera; with no frames from it for this long (pinching
-        // off), the scan opens the AR session itself.
-        const float k_FeedFallbackSeconds = 4f;
+        // No camera image for this long after the scan starts: say so on the hint.
+        const float k_NoFeedSeconds = 5f;
 
         // A share scan began: anything else using the room (the lobby's room scan) steps aside.
         public static event System.Action ShareScanStarted;
@@ -66,9 +65,8 @@ namespace CardboardXR.Stereo
         // second picture of the room floating in view read as a stray window.
         RectTransform m_WorldCastPanel;
         TMP_Text m_WorldCastStatus;
-        bool m_ArStartedForScan;
-        bool m_FellBackToAr;
         float m_WorldCastYaw;
+        bool m_ToolbarWired;
 
         void Awake()
         {
@@ -94,6 +92,9 @@ namespace CardboardXR.Stereo
 
         void Update()
         {
+            if (!m_ToolbarWired)
+                EnsureToolbarShare();
+
             if (m_ScanPanel.activeSelf && m_Scanner.Preview != null)
             {
                 m_Preview.texture = m_Scanner.Preview;
@@ -180,6 +181,7 @@ namespace CardboardXR.Stereo
 
         void ChooseShare()
         {
+            Debug.Log($"[Cast] Share pressed (casting={m_Cast != null && m_Cast.IsCasting}, scanning={m_CastScanning})");
             M3Fade.Hide(m_Menu);
             SettingsPanelHub.Close();
             // Share is world-space only — never open the phone 2D Scan Panel / never SetScanning.
@@ -216,10 +218,10 @@ namespace CardboardXR.Stereo
             }
 
             // In 6DoF the AR session already runs and the scanner reads its images. Otherwise the
-            // pinch sensor holds the camera: read its frames rather than open the AR session, which
-            // would take the camera from it and stop both pinching and the scan.
-            m_ArStartedForScan = false;
-            m_FellBackToAr = false;
+            // pinch sensor holds the camera and the scanner reads its frames. The scan never turns
+            // the AR session or camera manager on or off: enabling the AR camera outside 6DoF
+            // paints its (black) background over the stereo view, and fighting the pinch sensor
+            // for the camera stopped both scanning and pinching.
             var arRunning = m_Session.enabled && m_CameraManager.enabled;
             m_Scanner.UseFeed = !arRunning;
             m_Scanner.enabled = true;
@@ -238,15 +240,8 @@ namespace CardboardXR.Stereo
             // Switched to 3DoF mid-scan: the AR session has stopped, and the pinch sensor takes over.
             if (!m_Scanner.UseFeed && !(m_Session.enabled && m_CameraManager.enabled))
                 m_Scanner.UseFeed = true;
-            if (m_Scanner.UseFeed && !m_FellBackToAr &&
-                Time.unscaledTime - m_Scanner.LastImageTime > k_FeedFallbackSeconds)
-            {
-                m_FellBackToAr = true;
-                m_ArStartedForScan = !m_Session.enabled || !m_CameraManager.enabled;
-                m_Session.enabled = true;
-                m_CameraManager.enabled = true;
-                Debug.Log("[Cast] No frames from the pinch camera; scanning with the AR session");
-            }
+            if (m_WorldCastStatus != null && Time.unscaledTime - m_Scanner.LastImageTime > k_NoFeedSeconds)
+                m_WorldCastStatus.text = "No camera feed";
             FollowHead(false);
         }
 
@@ -259,17 +254,8 @@ namespace CardboardXR.Stereo
             m_Resolving = false;
             m_Scanner.enabled = false;
             m_Scanner.UseFeed = false;
-            if (m_ArStartedForScan)
-            {
-                // Only what this scan turned on, and not if 6DoF has taken the session over since.
-                var fusion = FindAnyObjectByType<HeadPoseFusion>();
-                if (fusion == null || fusion.CurrentMode != HeadPoseFusion.Mode.SixDof)
-                {
-                    m_CameraManager.enabled = false;
-                    m_Session.enabled = false;
-                }
-                m_ArStartedForScan = false;
-            }
+            // The AR session and camera manager are left exactly as they were: this scan never
+            // turned them on, so it must not turn them off under a running 6DoF demo either.
             if (m_WorldCastPanel == null)
                 return;
             if (paired)
@@ -336,8 +322,14 @@ namespace CardboardXR.Stereo
             }
         }
 
+        // The 3D toolbar Share must act exactly like the phone-screen menu's Share: same
+        // ChooseShare. Editor-built onClick listeners don't survive into a build, so this wires
+        // it at runtime — retried from Update until it lands, since the panel may not exist yet
+        // when Awake runs.
         void EnsureToolbarShare()
         {
+            if (m_ToolbarWired)
+                return;
             var panelObject = FindGazePanel();
             if (panelObject == null)
                 return;
@@ -346,12 +338,16 @@ namespace CardboardXR.Stereo
             if (existing != null)
             {
                 m_ToolbarShare = existing.GetComponent<M3Button>();
-                if (m_ToolbarShare != null && m_ToolbarShare.Button != null)
-                {
-                    m_ToolbarShare.Button.onClick.RemoveListener(ShareScreen);
-                    m_ToolbarShare.Button.onClick.AddListener(ShareScreen);
-                }
+                var button = m_ToolbarShare != null && m_ToolbarShare.Button != null
+                    ? m_ToolbarShare.Button
+                    : existing.GetComponent<Button>();
+                if (button == null)
+                    return;
+                button.onClick.RemoveListener(ShareScreen);
+                button.onClick.AddListener(ShareScreen);
+                m_ToolbarWired = true;
                 UpdateShareLabel();
+                Debug.Log("[Cast] 3D toolbar Share wired to the share flow");
                 return;
             }
 
@@ -382,6 +378,7 @@ namespace CardboardXR.Stereo
             if (d1 != null) dividers[1] = d1.GetComponent<Image>();
             if (d2 != null) dividers[2] = d2.GetComponent<Image>();
             toolbar.SetItems(items, groups, dividers);
+            m_ToolbarWired = true;
             UpdateShareLabel();
         }
 

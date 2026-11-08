@@ -52,8 +52,8 @@ namespace CardboardXR.Demos
 
         void OnShareScanStarted()
         {
-            if (m_Panel == null || !m_Panel.gameObject.activeSelf)
-                return;
+            // Whether or not the scan panel happens to be up: Share ends the room scan and the
+            // app library must not pop open over the QR hunt afterwards.
             m_ShareTookOver = true;
             m_Ending = true;
         }
