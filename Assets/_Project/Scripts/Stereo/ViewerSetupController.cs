@@ -4,6 +4,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using UnityEngine.XR.ARFoundation;
 
@@ -49,6 +50,7 @@ namespace CardboardXR.Stereo
         M3Button m_View;
         M3Button m_Share;
         M3Button m_ToolbarShare;
+        M3Button m_ToolbarRestart;
         M3Button m_UseCardboard;
         bool m_ShownMono;
         bool m_ShareSelected;
@@ -85,6 +87,7 @@ namespace CardboardXR.Stereo
             BuildUi();
             BuildWorldCastUi();
             EnsureToolbarShare();
+            EnsureToolbarRestart();
             ShowScanPanel(false);
             ShowWorldCastScan(false);
             LoadSavedViewer();
@@ -98,6 +101,8 @@ namespace CardboardXR.Stereo
         {
             if (!m_ToolbarWired)
                 EnsureToolbarShare();
+            if (m_ToolbarRestart == null)
+                EnsureToolbarRestart();
 
             if (m_ScanPanel.activeSelf && m_Scanner.Preview != null)
             {
@@ -419,6 +424,91 @@ namespace CardboardXR.Stereo
             toolbar.SetItems(items, groups, dividers);
             m_ToolbarWired = true;
             UpdateShareLabel();
+        }
+
+        // Palm settings → Restart reloads Core. Added next to Share so demos don't each need a button.
+        void EnsureToolbarRestart()
+        {
+            if (m_ToolbarRestart != null)
+                return;
+            var panelObject = FindGazePanel();
+            if (panelObject == null)
+                return;
+            var panel = (RectTransform)panelObject.transform;
+            var existing = panel.Find("Restart");
+            if (existing != null)
+            {
+                m_ToolbarRestart = existing.GetComponent<M3Button>();
+                var button = m_ToolbarRestart != null && m_ToolbarRestart.Button != null
+                    ? m_ToolbarRestart.Button
+                    : existing.GetComponent<Button>();
+                if (button == null)
+                    return;
+                button.onClick.RemoveListener(RestartApp);
+                button.onClick.AddListener(RestartApp);
+                return;
+            }
+
+            var toolbar = panelObject.GetComponent<M3Toolbar>();
+            if (toolbar == null)
+                return;
+
+            m_ToolbarRestart = M3.ToolbarItem("Restart", panel, "restart_alt", "Restart", Vector2.zero, 92f, RestartApp);
+            var apps = panel.Find("Apps") as RectTransform;
+            var recenter = panel.Find("Recenter") as RectTransform;
+            var scan = panel.Find("Scan") as RectTransform;
+            var share = panel.Find("Share") as RectTransform;
+            var tracking = panel.Find("Tracking Mode") as RectTransform;
+            var passthrough = panel.Find("Passthrough") as RectTransform;
+            var restartRect = (RectTransform)m_ToolbarRestart.transform;
+            if (apps == null || recenter == null || tracking == null || passthrough == null)
+                return;
+
+            RectTransform[] items;
+            int[] groups;
+            if (scan != null && share != null)
+            {
+                items = new[] { apps, recenter, scan, share, restartRect, tracking, passthrough };
+                groups = new[] { 0, 1, 1, 1, 1, 2, 2 };
+            }
+            else if (share != null)
+            {
+                items = new[] { apps, recenter, share, restartRect, tracking, passthrough };
+                groups = new[] { 0, 1, 1, 1, 2, 2 };
+            }
+            else if (scan != null)
+            {
+                items = new[] { apps, recenter, scan, restartRect, tracking, passthrough };
+                groups = new[] { 0, 1, 1, 1, 2, 2 };
+            }
+            else
+            {
+                items = new[] { apps, recenter, restartRect, tracking, passthrough };
+                groups = new[] { 0, 1, 1, 2, 2 };
+            }
+
+            var dividers = new Image[3];
+            var d1 = panel.Find("Divider 1");
+            var d2 = panel.Find("Divider 2");
+            if (d1 != null) dividers[1] = d1.GetComponent<Image>();
+            if (d2 != null) dividers[2] = d2.GetComponent<Image>();
+            toolbar.SetItems(items, groups, dividers);
+            Debug.Log("[Settings] Restart added to the palm settings toolbar");
+        }
+
+        void RestartApp()
+        {
+            Debug.Log("[Settings] Restarting the app from the palm settings toolbar");
+            for (var i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var scene = SceneManager.GetSceneAt(i);
+                if (scene.IsValid() && scene.name == "Core" && scene.buildIndex >= 0)
+                {
+                    SceneManager.LoadScene(scene.buildIndex, LoadSceneMode.Single);
+                    return;
+                }
+            }
+            SceneManager.LoadScene(0, LoadSceneMode.Single);
         }
 
         static GameObject FindGazePanel()

@@ -28,6 +28,9 @@ namespace CardboardXR.Demos.Ascii
         readonly MaterialPropertyBlock m_Block = new();
         bool m_Draw;
         bool m_LoggedFurniture;
+        // Creating every plane overlay in one frame freezes the door fade; spread them out.
+        const int k_OverlaysPerFrame = 4;
+        int m_OverlayBudget;
 
         public void Configure(Material asciiMaterial, ARPlaneManager planes)
         {
@@ -99,6 +102,7 @@ namespace CardboardXR.Demos.Ascii
             if (m_Planes == null)
                 return;
             m_Seen.Clear();
+            m_OverlayBudget = k_OverlaysPerFrame;
             foreach (var plane in m_Planes.trackables)
             {
                 if (plane == null || plane.trackingState == TrackingState.None || plane.subsumedBy != null)
@@ -109,6 +113,8 @@ namespace CardboardXR.Demos.Ascii
                 m_Seen.Add(plane.trackableId);
                 if (!m_Overlays.TryGetValue(plane.trackableId, out var overlay) || overlay == null)
                 {
+                    if (m_OverlayBudget-- <= 0)
+                        continue;
                     overlay = CreateOverlay(plane);
                     m_Overlays[plane.trackableId] = overlay;
                 }

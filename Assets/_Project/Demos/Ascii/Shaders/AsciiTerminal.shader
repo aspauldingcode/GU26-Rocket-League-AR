@@ -56,6 +56,8 @@ Shader "CardboardXR/Demos/AsciiTerminal"
             float _AsciiVoid;
             // 0 to 1 as the player turns to stone: every glyph drains to gray.
             float _AsciiStone;
+            // 0 far, 1 when an angel is almost on the player: a red pulse in empty void tiles.
+            float _AsciiThreat;
 
             static const float3 k_Light = float3(0.25, 0.9, 0.3);
 
@@ -169,21 +171,41 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 return lerp(paper, ink, glyph);
             }
 
+            // Green at the tile center, or any corner — fills the jagged triangle edges of AR
+            // plane meshes so wall borders still become glyphs instead of raw passthrough.
+            bool RoomCover(float2 centerUv, float2 cellUv, out half3 sample)
+            {
+                half4 src = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv, 0);
+                sample = src.rgb;
+                if (AsciiGreen(sample))
+                    return true;
+                float2 o = cellUv * 0.42;
+                half3 a = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv + float2(-o.x, -o.y), 0).rgb;
+                half3 b = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv + float2(o.x, -o.y), 0).rgb;
+                half3 c = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv + float2(-o.x, o.y), 0).rgb;
+                half3 d = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv + float2(o.x, o.y), 0).rgb;
+                if (AsciiGreen(a)) { sample = a; return true; }
+                if (AsciiGreen(b)) { sample = b; return true; }
+                if (AsciiGreen(c)) { sample = c; return true; }
+                if (AsciiGreen(d)) { sample = d; return true; }
+                return false;
+            }
+
             half3 Room(Tile tile, float2 size, out bool drawn)
             {
                 float2 cell = tile.cell;
                 float2 inCell = tile.inCell;
                 float2 centerUv = tile.centerUv;
                 float depth = Eye(centerUv);
+                float2 cellUv = cell / size;
 
-                half4 src = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv, 0);
-                drawn = AsciiGreen(src.rgb);
+                half3 sample;
+                drawn = RoomCover(centerUv, cellUv, sample);
                 if (!drawn)
                     return 0;
 
-                float form = saturate((src.g - 0.45) / 0.55);
+                float form = saturate((sample.g - 0.45) / 0.55);
 
-                float2 cellUv = cell / size;
                 float left = Eye(centerUv - float2(cellUv.x, 0.0));
                 float right = Eye(centerUv + float2(cellUv.x, 0.0));
                 float down = Eye(centerUv - float2(0.0, cellUv.y));
@@ -239,7 +261,14 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 bool drawn = false;
                 // No scene depth (nothing rendered): true black inside, not the clear color.
                 if (empty)
+                {
                     color = _AsciiVoid > 0.5 ? half3(0, 0, 0) : here;
+                    if (_AsciiVoid > 0.5 && _AsciiThreat > 0.05)
+                    {
+                        float pulse = 0.5 + 0.5 * sin(_Time.y * 9.0);
+                        color = lerp(color, half3(0.35, 0.02, 0.02) * pulse, _AsciiThreat * 0.55);
+                    }
+                }
                 else
                 {
                     color = Room(tile, size, drawn);

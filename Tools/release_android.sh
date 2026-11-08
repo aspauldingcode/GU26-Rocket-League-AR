@@ -39,7 +39,7 @@ CARDBOARDXR_VERSION=$VERSION CARDBOARDXR_KEYSTORE=$KEYSTORE CARDBOARDXR_KEYSTORE
     -executeMethod ProjectBootstrap.StereoBuilder.BuildAndroid -logFile $WORK/build.log || true
 grep -E "\[Build\]|error CS" $WORK/build.log | head -20
 grep -q "Build Succeeded" $WORK/build.log || exit 1
-mv $WORK/src/Builds/CardboardXR.apk $APK
+mv $WORK/src/Builds/ASCIIRooms.apk $APK
 
 echo "== checking"
 # Signed with the release key, and the only videos in it are the placeholders.

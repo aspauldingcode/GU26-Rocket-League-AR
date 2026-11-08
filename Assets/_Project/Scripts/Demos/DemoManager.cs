@@ -106,6 +106,24 @@ namespace CardboardXR.Demos
             StartCoroutine(Switch(null));
         }
 
+        // Palm-settings Restart: reload Core from scratch so tracking, demos and UI come up clean.
+        public void RestartApp()
+        {
+            if (m_Busy)
+                return;
+            Debug.Log("[Demos] Restarting the app");
+            m_Busy = true;
+            if (m_Core != null && m_Core.Settings != null)
+                m_Core.Settings.Close();
+            var core = gameObject.scene;
+            if (!core.IsValid())
+            {
+                SceneManager.LoadScene(0, LoadSceneMode.Single);
+                return;
+            }
+            SceneManager.LoadScene(core.buildIndex >= 0 ? core.buildIndex : 0, LoadSceneMode.Single);
+        }
+
         // Unloads what's loaded and loads the demo, or the lobby for null.
         IEnumerator Switch(DemoCatalog.Entry next)
         {

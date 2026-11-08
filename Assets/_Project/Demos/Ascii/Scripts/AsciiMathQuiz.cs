@@ -7,12 +7,12 @@ using UnityEngine.UI;
 namespace CardboardXR.Demos.Ascii
 {
     // The math game inside the gate, played on AsciiQuizRules. A briefing explains it; Start puts a
-    // weeping angel ahead of the player. Each question is read facing the angel (held still for the
-    // ten seconds) on a panel between player and angel, typeset with MathJax (Tools/ascii_mathjax.cjs).
-    // Then four Kahoot-style answers appear on a panel behind the player, so answering means turning
-    // away and letting the angel creep closer. A red scratch pad (AsciiWhiteboard) sits toward the
-    // angel for working it out; it's wiped after every answer. Three mistakes turn the player to
-    // stone; finishing the five opens the portal, and walking out through it wins. Logs [Ascii].
+    // weeping angel behind the player. The question and Kahoot-style answers stay in the same place
+    // in front (MathJax via Tools/ascii_mathjax.cjs): 5 s on the question board, then answers with a
+    // 5 s grace and 10 s to pick — no answer countdown; prompts say "Be quick!" / "look behind you!".
+    // A red scratch pad (AsciiWhiteboard) sits with the question; it's wiped after every answer.
+    // Three mistakes turn the player to stone; finishing the five opens the portal, and walking out
+    // through it wins. Logs [Ascii].
     public class AsciiMathQuiz : MonoBehaviour
     {
         // Fixed, so a demo can be played through on purpose. Answer key: B, D, A, C, B.
@@ -36,15 +36,17 @@ namespace CardboardXR.Demos.Ascii
         static readonly Color k_Right = new(0.55f, 0.9f, 0.55f);
         static readonly int k_StoneId = Shader.PropertyToID("_AsciiStone");
 
-        // How long the angel has to walk unseen to reach the player: a minute, enough for five
-        // answers given promptly.
-        const float k_ReachSeconds = 60f;
-        const float k_AngelReach = 0.55f;
         const float k_StoneSeconds = 1.6f;
-        const float k_QuestionDistance = 1.7f;
-        const float k_BoardDistance = 0.62f;
+        // Question sits low and a little aside so the angel's face stays in view above it.
+        const float k_QuestionDistance = 1.55f;
+        const float k_QuestionHeight = -0.35f;
+        const float k_QuestionSide = 0.45f;
+        const float k_BoardDistance = 0.7f;
         const float k_AnswerDistance = 1.3f;
         const float k_FrontDistance = 1.4f;
+        // Fake frosted glass: translucent M3 surface (no fullscreen blur pass).
+        static readonly Color k_Glass = M3Theme.WithAlpha(M3Theme.SurfaceContainer, 0.42f);
+        static readonly Color k_GlassHigh = M3Theme.WithAlpha(M3Theme.SurfaceContainerHigh, 0.5f);
         // The equation's height in dp per texture pixel: about 60 dp for a line of numbers.
         const float k_DpPerPixel = 0.5f;
 
@@ -57,7 +59,9 @@ namespace CardboardXR.Demos.Ascii
         Action m_OnLobby;
         Action m_OnPlayAgain;
         Texture2D[] m_Images;
-        Vector3 m_AngelDirection = Vector3.forward;
+        // Panel stays in front; angels always spawn on the opposite side (behind the player).
+        Vector3 m_PanelForward = Vector3.forward;
+        Vector3 m_AngelDirection = Vector3.back;
         float m_Stone;
 
         RectTransform m_Briefing;
@@ -126,6 +130,7 @@ namespace CardboardXR.Demos.Ascii
                 m_Angels.Caught -= OnCaught;
             m_Rules.Changed -= OnChanged;
             Shader.SetGlobalFloat(k_StoneId, 0f);
+            Shader.SetGlobalFloat("_AsciiThreat", 0f);
         }
 
         void Update()
@@ -164,8 +169,7 @@ namespace CardboardXR.Demos.Ascii
                     M3Fade.Show(m_Briefing.gameObject);
                     break;
                 case AsciiQuizState.Reading:
-                    if (from == AsciiQuizState.Briefing)
-                        SpawnAngel();
+                    EnsureAngelsForQuestion();
                     ShowQuestion();
                     break;
                 case AsciiQuizState.Answering:
@@ -187,21 +191,30 @@ namespace CardboardXR.Demos.Ascii
             }
         }
 
-        void SpawnAngel()
+        // Q1–2: one angel. Q3: second. Q4: third. Q5: two more (five total). First stays furthest.
+        static int AngelsForQuestion(int questionIndex) => questionIndex switch
         {
-            var facing = Flat(m_Head.forward, Vector3.forward);
-            var spawn = m_SpawnPoint(facing);
-            var distance = Vector3.ProjectOnPlane(spawn - m_Head.position, Vector3.up).magnitude;
-            m_AngelDirection = facing;
+            0 or 1 => 1,
+            2 => 2,
+            3 => 3,
+            _ => 5,
+        };
+
+        void EnsureAngelsForQuestion()
+        {
+            // Quiz stays where you're looking; angels always come from behind.
+            m_PanelForward = Flat(m_Head.forward, m_PanelForward);
+            m_AngelDirection = -m_PanelForward;
+            var spawn = m_SpawnPoint(m_AngelDirection);
+            m_AngelDirection = Flat(spawn - m_Head.position, m_AngelDirection);
             m_Angels.SetHeld(true);
-            m_Angels.Spawn(spawn, Mathf.Max(0.02f, (distance - k_AngelReach) / k_ReachSeconds));
-            Debug.Log($"[Ascii] Answer key {k_AnswerKey}");
+            m_Angels.EnsureCount(AngelsForQuestion(m_Rules.Question), spawn, m_AngelDirection);
+            if (m_Rules.Question == 0)
+                Debug.Log($"[Ascii] Answer key {k_AnswerKey}");
         }
 
         void ShowQuestion()
         {
-            if (m_Angels.TryGetAngel(out var angel))
-                m_AngelDirection = Flat(angel - m_Head.position, m_AngelDirection);
             var index = m_Rules.Question;
             M3Fade.Hide(m_Briefing.gameObject);
             M3Fade.Hide(m_Answers.gameObject);
@@ -210,8 +223,7 @@ namespace CardboardXR.Demos.Ascii
             m_QuestionHeader.text = $"Question {index + 1} of {AsciiQuizRules.k_Questions}";
             SetEquation(index);
             m_Count.color = M3Theme.Primary;
-            Place(m_Question, m_AngelDirection, k_QuestionDistance, 0.3f);
-            Place(m_Board, m_AngelDirection, k_BoardDistance, -0.3f);
+            PlaceQuizPanels();
             M3Fade.Show(m_Question.gameObject);
             M3Fade.Show(m_Board.gameObject);
         }
@@ -227,8 +239,19 @@ namespace CardboardXR.Demos.Ascii
                 m_Choices[i].Interactable = true;
             }
             m_Feedback.text = "";
-            Place(m_Answers, -m_AngelDirection, k_AnswerDistance, 0f);
+            // Same spot as the question prompt — not flipped behind the player.
+            PlaceQuizPanels();
+            M3Fade.Show(m_Question.gameObject);
             M3Fade.Show(m_Answers.gameObject);
+            M3Fade.Show(m_Board.gameObject);
+        }
+
+        void PlaceQuizPanels()
+        {
+            PlaceOffset(m_Question, m_PanelForward, k_QuestionDistance, k_QuestionHeight, 0f);
+            PlaceOffset(m_Board, m_PanelForward, k_BoardDistance, -0.55f, -k_QuestionSide * 0.5f);
+            // Answers sit just under the equation so question + choices share one view.
+            PlaceOffset(m_Answers, m_PanelForward, k_AnswerDistance, -0.15f, 0f);
         }
 
         void ShowFeedback()
@@ -301,24 +324,53 @@ namespace CardboardXR.Demos.Ascii
             {
                 case AsciiQuizState.Reading:
                     m_Count.text = remaining.ToString();
-                    m_Status.text = "Read it now. The angel is frozen. The answers appear behind you.";
+                    m_Status.text = "Read it now. Look behind you!";
                     break;
                 case AsciiQuizState.Answering:
-                    m_Count.text = remaining.ToString();
-                    m_Count.color = remaining <= 5 ? M3Theme.Error : M3Theme.Primary;
-                    var grace = Mathf.CeilToInt(m_Rules.GraceRemaining(now));
-                    m_Status.text = grace > 0
-                        ? $"Turn around and read the choices. The angel wakes in {grace}."
-                        : "Turn around to answer. Pinch in the air to write notes.";
-                    m_AnswersTimer.text = grace > 0 ? $"{remaining} s · angel frozen {grace}" : $"{remaining} s";
-                    m_AnswersTimer.color = remaining <= 5 ? M3Theme.Error : M3Theme.OnSurface;
+                    var grace = m_Rules.GraceRemaining(now) > 0f;
+                    m_Count.text = grace ? "…" : "Be quick!";
+                    m_Count.color = grace ? M3Theme.Primary : M3Theme.Error;
+                    m_Status.text = grace
+                        ? "Choices are up. Look behind you!"
+                        : "Be quick! Look behind you!";
+                    m_AnswersTimer.text = grace ? "Look behind you!" : "Be quick!";
+                    m_AnswersTimer.color = grace ? M3Theme.OnSurface : M3Theme.Error;
                     break;
             }
             if (m_Rules.Playing)
+            {
                 m_Mistakes.text = MistakesText();
+                UpdateThreat(now);
+            }
         }
 
-        string MistakesText() => $"Mistakes {m_Rules.Mistakes} / {AsciiQuizRules.k_MaxMistakes}";
+        void UpdateThreat(float now)
+        {
+            if (m_Angels == null || !m_Angels.HasAngel)
+            {
+                Shader.SetGlobalFloat("_AsciiThreat", 0f);
+                return;
+            }
+            var distance = m_Angels.NearestDistance();
+            var threat = m_Angels.Threat();
+            Shader.SetGlobalFloat("_AsciiThreat", threat);
+            if (m_Rules.State is AsciiQuizState.Reading or AsciiQuizState.Answering)
+            {
+                var near = distance < 2.2f;
+                var pulse = near ? (0.55f + 0.45f * Mathf.Abs(Mathf.Sin(now * 6f))) : 1f;
+                if (m_Status != null && m_Rules.State == AsciiQuizState.Answering && m_Rules.GraceRemaining(now) <= 0f)
+                    m_Status.text = near
+                        ? $"Look behind you! {distance:F1} m — Be quick!"
+                        : "Be quick! Look behind you!";
+                if (m_Count != null && near && m_Rules.State == AsciiQuizState.Answering && m_Rules.GraceRemaining(now) <= 0f)
+                {
+                    m_Count.text = "Look behind you!";
+                    m_Count.color = Color.Lerp(M3Theme.Error, M3Theme.Primary, 1f - pulse);
+                }
+            }
+        }
+
+        string MistakesText() => $"Mistakes {m_Rules.Mistakes} / {AsciiQuizRules.k_MaxMistakes} · angels {m_Angels.Count}";
 
         void Choose(int index)
         {
@@ -373,9 +425,16 @@ namespace CardboardXR.Demos.Ascii
             }
         }
 
-        void Place(RectTransform panel, Vector3 direction, float distance, float height)
+        void Place(RectTransform panel, Vector3 direction, float distance, float height) =>
+            PlaceOffset(panel, direction, distance, height, 0f);
+
+        void PlaceOffset(RectTransform panel, Vector3 direction, float distance, float height, float side)
         {
-            var position = m_Head.position + direction * distance + Vector3.up * height;
+            var right = Vector3.Cross(Vector3.up, direction);
+            if (right.sqrMagnitude < 1e-4f)
+                right = Vector3.right;
+            right.Normalize();
+            var position = m_Head.position + direction * distance + right * side + Vector3.up * height;
             panel.SetPositionAndRotation(position, Quaternion.LookRotation(position - m_Head.position, Vector3.up));
         }
 
@@ -395,15 +454,14 @@ namespace CardboardXR.Demos.Ascii
 
         void BuildBriefing()
         {
-            m_Briefing = WorldUi.Panel("Ascii How To Play", transform, new Vector2(640f, 470f), k_FrontDistance);
+            m_Briefing = WorldUi.Panel("Ascii How To Play", transform, new Vector2(640f, 470f), k_FrontDistance, k_Glass);
             M3.Text("Title", m_Briefing, "Escape the ASCII dimension", M3Theme.Type.HeadlineSmall,
                 new Vector2(0f, 195f), new Vector2(580f, 40f));
             M3.Text("Rules", m_Briefing,
                 "• Answer 5 multiple-choice math questions.\n" +
-                "• You get 10 s to read each one. The angel is frozen while you read.\n" +
-                "• Then 30 s to answer. The answers appear behind you, away from the angel,\n" +
-                "  and it stays frozen for the first 5 s so you can read them.\n" +
-                "• Look at the angel to freeze it. Turn your back and it creeps closer.\n" +
+                "• 5 s on the question board, then answers appear — Be quick! No countdown.\n" +
+                "• Question and answers stay in front of you. Look behind you!\n" +
+                "• Looking at an angel slows it (it still creeps). More join later.\n" +
                 "• Pinch in the air to write red notes while you work it out.\n" +
                 "• 3 wrong answers (running out of time counts) and you turn to stone.\n" +
                 "• Get 3 or more right and the portal reopens. Walk out through it to win.",
@@ -417,7 +475,7 @@ namespace CardboardXR.Demos.Ascii
         // front of it writes notes rather than hitting a panel.
         void BuildQuestion()
         {
-            m_Question = M3.Canvas("Ascii Question", transform, new Vector2(640f, 400f), k_QuestionDistance, M3Theme.SurfaceContainer);
+            m_Question = M3.Canvas("Ascii Question", transform, new Vector2(640f, 400f), k_QuestionDistance, k_Glass);
             m_QuestionHeader = M3.Text("Header", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(-140f, 165f),
                 new Vector2(320f, 32f), M3Theme.OnSurfaceVariant, TextAlignmentOptions.Left);
             m_Mistakes = M3.Text("Mistakes", m_Question, "", M3Theme.Type.TitleMedium, new Vector2(140f, 165f),
@@ -436,7 +494,7 @@ namespace CardboardXR.Demos.Ascii
         void BuildBoard()
         {
             m_Board = M3.Canvas("Ascii Scratch Pad", transform, new Vector2(460f, 280f), k_BoardDistance,
-                M3Theme.WithAlpha(M3Theme.Surface, 0.55f));
+                M3Theme.WithAlpha(M3Theme.Surface, 0.35f));
             M3.Text("Label", m_Board, "Scratch pad: pinch in the air to write", M3Theme.Type.BodyMedium,
                 new Vector2(0f, 118f), new Vector2(420f, 28f), M3Theme.OnSurfaceVariant);
         }
@@ -444,7 +502,7 @@ namespace CardboardXR.Demos.Ascii
         // Behind the player, away from the angel.
         void BuildAnswers()
         {
-            m_Answers = WorldUi.Panel("Ascii Answers", transform, new Vector2(680f, 400f), k_AnswerDistance);
+            m_Answers = WorldUi.Panel("Ascii Answers", transform, new Vector2(680f, 400f), k_AnswerDistance, k_GlassHigh);
             m_AnswersHeader = M3.Text("Header", m_Answers, "", M3Theme.Type.TitleMedium, new Vector2(0f, 165f),
                 new Vector2(620f, 32f), M3Theme.OnSurfaceVariant);
             m_AnswersTimer = Big(M3.Text("Timer", m_Answers, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, 118f),
@@ -469,7 +527,7 @@ namespace CardboardXR.Demos.Ascii
 
         void BuildEnd()
         {
-            m_End = WorldUi.Panel("Ascii Game Over", transform, new Vector2(580f, 330f), k_FrontDistance);
+            m_End = WorldUi.Panel("Ascii Game Over", transform, new Vector2(580f, 330f), k_FrontDistance, k_Glass);
             m_EndTitle = Big(M3.Text("Title", m_End, "", M3Theme.Type.HeadlineSmall, new Vector2(0f, 100f),
                 new Vector2(540f, 56f)), 34f);
             m_EndBody = M3.Text("Body", m_End, "", M3Theme.Type.BodyLarge, new Vector2(0f, 20f), new Vector2(500f, 80f),

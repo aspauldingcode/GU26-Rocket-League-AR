@@ -8,7 +8,9 @@
 # For heat: renderScale N (percent, e.g. 70), msaa 1|2|4|8, handHz N (0 = every image).
 # Install an already-built APK without rebuilding:
 #   zsh Tools/build_and_run.sh --install-only
-# Close the project in the Editor first (batch mode needs the project lock). Logs go to $LOGS.
+# If the Editor is already open and Builds/ASCIIRooms.apk exists, the Unity step is skipped
+# automatically (same idea as make install / iOS). Set CARDBOARDXR_FORCE_UNITY=1 for a fresh
+# batch build (Editor must be closed). Logs go to $LOGS.
 # USB drops are common: if install doesn't print "Success", run `adb kill-server; adb start-server`
 # and install again, since the launch that follows would otherwise start the previous build.
 set -u
@@ -19,9 +21,22 @@ U=${UNITY:-/Applications/Unity/Hub/Editor/6000.6.8f1/Unity.app/Contents/MacOS/Un
 #   CARDBOARDXR_BUNDLE_ID=com.example.gurlar zsh Tools/...
 PKG=${CARDBOARDXR_BUNDLE_ID:-com.rocketleague.gurlar}
 LOGS=${TMPDIR:-/tmp}/cardboardxr
-APK=$P/Builds/CardboardXR.apk
+APK=$P/Builds/ASCIIRooms.apk
+# Older builds used the previous product name; reuse that APK if the new path isn't there yet.
+LEGACY_APK=$P/Builds/CardboardXR.apk
 mkdir -p $LOGS
 cd $P || exit 1
+
+resolve_apk() {
+    if [ -f "$APK" ]; then
+        return 0
+    fi
+    if [ -f "$LEGACY_APK" ]; then
+        APK=$LEGACY_APK
+        return 0
+    fi
+    return 1
+}
 
 INSTALL_ONLY=0
 LAUNCH_ARGS=()
@@ -34,9 +49,22 @@ for arg in "$@"; do
 done
 set -- "${LAUNCH_ARGS[@]}"
 
+# Batchmode can't lock the project while the Editor has it open. Prefer installing the last APK
+# so `make install-android` works without quitting Unity (mirrors Tools/ios_build_and_run.sh).
 if [ $INSTALL_ONLY -eq 0 ] && pgrep -f "Unity.app/Contents/MacOS/Unity" >/dev/null; then
-    echo "Unity is running; close it first"
-    exit 1
+    if [ "${CARDBOARDXR_FORCE_UNITY:-}" = "1" ]; then
+        echo "Unity is running; close it first (CARDBOARDXR_FORCE_UNITY=1 needs the project lock)."
+        exit 1
+    fi
+    if resolve_apk; then
+        echo "== Unity is open; reusing $APK (set CARDBOARDXR_FORCE_UNITY=1 for a fresh build)"
+        INSTALL_ONLY=1
+    else
+        echo "Unity is running and there is no Android APK yet at $APK."
+        echo "Close Unity once for a batch build (make install-android), or build an APK from the Editor."
+        echo "Later installs can leave the Editor open when $APK already exists."
+        exit 1
+    fi
 fi
 
 # Prefer an explicit serial (emulator script sets this), else -e when CARDBOARDXR_EMULATOR=1.
@@ -112,8 +140,8 @@ wait_for_adb() {
 }
 
 install_and_launch() {
-    if [ ! -f $APK ]; then
-        echo "Missing $APK — build first (make install-android), or pass without --install-only."
+    if ! resolve_apk; then
+        echo "Missing $APK — build first (make install-android with Unity closed once)."
         exit 1
     fi
     if ! wait_for_adb "${CARDBOARDXR_ADB_WAIT:-120}"; then
@@ -160,7 +188,7 @@ if ! adb_ready; then
     describe_adb
     if ! wait_for_adb "${CARDBOARDXR_ADB_WAIT_BEFORE:-45}"; then
         echo "Aborting before Unity build. Enable USB debugging (or start an emulator), then re-run."
-        echo "If Builds/CardboardXR.apk already exists: make install-android-apk"
+        echo "If Builds/ASCIIRooms.apk already exists: make install-android-apk"
         exit 1
     fi
 fi

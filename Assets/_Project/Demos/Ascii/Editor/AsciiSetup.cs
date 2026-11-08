@@ -47,7 +47,7 @@ namespace ProjectBootstrap
             ascii.SetColor("_RoomColor", new Color(0f, 1f, 0f, 1f));
             ascii.SetColor("_FurnitureColor", new Color(1f, 0.92f, 0f, 1f));
             ascii.SetFloat("_ForceFurniture", 0f);
-            ascii.SetFloat("_Extrude", 0.01f);
+            ascii.SetFloat("_Extrude", 0.002f);
             ascii.SetTexture("_GlyphAtlas", atlas);
             ascii.SetFloat("_GlyphCount", AsciiGlyph.Ramp.Length);
             EditorUtility.SetDirty(ascii);

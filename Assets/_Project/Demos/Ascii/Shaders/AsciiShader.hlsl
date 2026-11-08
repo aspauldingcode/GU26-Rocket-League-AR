@@ -16,6 +16,7 @@ CBUFFER_START(UnityPerMaterial)
     float _Volume;
     float _Figure;
     float _Window;
+    // Keep tiny: larger extrude opens triangle gaps at AR plane borders that skip the green mask.
     float _Extrude;
     float4 _GlyphAtlas_ST;
     float _GlyphCount;

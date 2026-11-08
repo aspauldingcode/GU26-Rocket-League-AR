@@ -35,6 +35,13 @@ namespace CardboardXR.Demos.Ascii
 
         public void Configure(PassthroughController passthrough) => m_Passthrough = passthrough;
 
+        // Compile the model ahead of the first crossing so entering the gate doesn't hitch.
+        public void Warm()
+        {
+            if (m_Worker == null && !m_Failed)
+                Setup();
+        }
+
         // Inside the gate only; outside, passthrough already shows everyone.
         public void SetActive(bool active)
         {

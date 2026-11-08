@@ -36,7 +36,7 @@ namespace ProjectBootstrap
         const string ScenesFolder = "Assets/_Project/Scenes";
         const string GeneratedFolder = "Assets/_Project/Stereo/Generated";
         const string CoreScene = ScenesFolder + "/Core.unity";
-        const string AndroidApk = "Builds/CardboardXR.apk";
+        const string AndroidApk = "Builds/ASCIIRooms.apk";
         // Xcode projects are folders, and Xcode builds and signs them from there.
         const string XcodeProject = "Builds/iOS";
         const string DistortionShaderPath = "Assets/_Project/Shaders/Distortion.shader";

@@ -29,7 +29,7 @@ namespace ProjectBootstrap
             var android = NamedBuildTarget.Android;
 
             PlayerSettings.companyName = "brenpoly";
-            PlayerSettings.productName = "CardboardXR";
+            PlayerSettings.productName = "ASCIIRooms";
             PlayerSettings.SetApplicationIdentifier(android, "com.rocketleague.gurlar");
 
             PlayerSettings.SetScriptingBackend(android, ScriptingImplementation.IL2CPP);
@@ -65,7 +65,7 @@ namespace ProjectBootstrap
             PlayerSettings.iOS.targetDevice = iOSTargetDevice.iPhoneOnly;
             // iOS kills the app the moment ARKit opens the camera unless it can say why.
             PlayerSettings.iOS.cameraUsageDescription =
-                "CardboardXR uses the camera to follow your head and hands, and to show the room around you.";
+                "ASCIIRooms uses the camera to follow your head and hands, and to show the room around you.";
             // Xcode signs with whichever Apple ID is signed into it.
             PlayerSettings.iOS.appleEnableAutomaticSigning = true;
 

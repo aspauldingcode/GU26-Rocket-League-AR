@@ -10,7 +10,7 @@ namespace CardboardXR.Demos.Ascii
         Briefing,
         // The question shows; the answers don't yet. Angels are held.
         Reading,
-        // The answers show behind the player. Angels move while unseen.
+        // The answers show with the question. Angels move from behind while unseen.
         Answering,
         // Right or wrong, for a moment. Angels are held.
         Feedback,
@@ -28,17 +28,18 @@ namespace CardboardXR.Demos.Ascii
         Caught,
     }
 
-    // The math game's rules, with no Unity in them: five questions, ten seconds to read each and
-    // thirty to answer it, a timeout counts as a mistake, three mistakes turn the player to stone,
-    // and finishing the five opens the portal, which has to be walked through to win. Every move
-    // is checked against the current state, so a late click or a second catch can't skip a step.
+    // The math game's rules, with no Unity in them: five questions, five seconds to read each and
+    // ten to answer (with a five-second grace while choices appear). A timeout counts as a mistake,
+    // three mistakes turn the player to stone, and finishing the five opens the portal, which has
+    // to be walked through to win. Every move is checked against the current state, so a late click
+    // or a second catch can't skip a step.
     public class AsciiQuizRules
     {
         public const int k_Questions = 5;
         public const int k_MaxMistakes = 3;
-        public const float k_ReadSeconds = 10f;
-        public const float k_AnswerSeconds = 30f;
-        // The first seconds of the answer window, while the angels stay held so the choices can be read.
+        public const float k_ReadSeconds = 5f;
+        public const float k_AnswerSeconds = 10f;
+        // First half of the answer window: angels stay held so the choices can be read.
         public const float k_GraceSeconds = 5f;
         public const float k_FeedbackSeconds = 1.6f;
 

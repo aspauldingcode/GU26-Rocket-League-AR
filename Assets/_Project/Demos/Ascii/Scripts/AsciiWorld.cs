@@ -76,6 +76,46 @@ namespace CardboardXR.Demos.Ascii
             m_Animating = StartCoroutine(Animate(k_SinkSeconds, t => from * (1f - t * t * t), closed));
         }
 
+        // After walking in: the frame stays where it was placed and sinks shut so the game can start.
+        // The ASCII room is already up; this only seals the doorway behind the player.
+        public void SealDoor(Action sealedDoor = null)
+        {
+            ReturnUnlocked = false;
+            if (m_InsideMask != null)
+                m_InsideMask.SetActive(false);
+            if (m_Frame == null)
+            {
+                sealedDoor?.Invoke();
+                return;
+            }
+            m_Frame.gameObject.SetActive(true);
+            if (m_Animating != null)
+                StopCoroutine(m_Animating);
+            var from = Mathf.Clamp01(m_Frame.localScale.y);
+            m_Animating = StartCoroutine(Animate(k_SinkSeconds, t => from * (1f - t * t * t), () =>
+            {
+                if (m_Frame != null)
+                    m_Frame.gameObject.SetActive(false);
+                sealedDoor?.Invoke();
+            }));
+        }
+
+        // Questions done: rise the same frame back open at the original placement so walking out wins.
+        public void UnlockReturnPortal()
+        {
+            ReturnUnlocked = true;
+            if (!IsInside || m_Frame == null)
+                return;
+            m_Frame.gameObject.SetActive(true);
+            m_Frame.localScale = new Vector3(1f, 0.001f, 1f);
+            if (m_InsideMask != null)
+                m_InsideMask.SetActive(true);
+            if (m_Animating != null)
+                StopCoroutine(m_Animating);
+            m_Animating = StartCoroutine(Animate(k_RiseSeconds, BackOut, null));
+            Debug.Log("[Ascii] Return portal rising open");
+        }
+
         IEnumerator Animate(float seconds, Func<float, float> height, Action done)
         {
             var cover = Quad("Door Cover", m_World, Vector3.zero, Vector2.one, Quaternion.identity, m_Mask);
@@ -135,7 +175,14 @@ namespace CardboardXR.Demos.Ascii
             if (m_Peek != null)
                 m_Peek.SetActive(!inside);
             m_OutsideMask.SetActive(!inside);
-            m_Frame.gameObject.SetActive(!inside || ReturnUnlocked);
+            // Keep the frame up on enter so SealDoor can sink it; hide only after it seals or when
+            // already locked and not unlocking. UnlockReturnPortal rises it again in place.
+            if (!inside)
+            {
+                m_Frame.gameObject.SetActive(true);
+                if (m_Frame.localScale.y < 0.5f)
+                    m_Frame.localScale = Vector3.one;
+            }
             m_InsideMask.SetActive(inside && ReturnUnlocked);
             if (!announce)
                 return;
@@ -146,17 +193,11 @@ namespace CardboardXR.Demos.Ascii
         // Locks the way back again for another round. Only from outside, where the frame still shows.
         public void Relock()
         {
-            if (!IsInside)
-                ReturnUnlocked = false;
-        }
-
-        public void UnlockReturnPortal()
-        {
-            ReturnUnlocked = true;
-            if (!IsInside)
+            if (IsInside)
                 return;
-            m_Frame.gameObject.SetActive(true);
-            m_InsideMask.SetActive(true);
+            ReturnUnlocked = false;
+            if (m_InsideMask != null)
+                m_InsideMask.SetActive(false);
         }
 
         // A real casing: jambs, lintel, and sill. The imported frame mesh was a thin CAD profile

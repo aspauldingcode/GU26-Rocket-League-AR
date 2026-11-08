@@ -29,7 +29,7 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _Extrude: 0.01
+    - _Extrude: 0.002
     - _Figure: 0
     - _ForceFurniture: 0
     - _GlyphCount: 70

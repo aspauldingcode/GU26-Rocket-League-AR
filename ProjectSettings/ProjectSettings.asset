@@ -13,7 +13,7 @@ PlayerSettings:
   useOnDemandResources: 0
   accelerometerFrequency: 60
   companyName: brenpoly
-  productName: CardboardXR
+  productName: ASCIIRooms
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
   m_SplashScreenBackgroundColor: {r: 0.13725491, g: 0.12156863, b: 0.1254902, a: 1}
@@ -152,6 +152,9 @@ PlayerSettings:
   bundleVersion: 0.1.0
   preloadedAssets:
   - {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  - {fileID: 855596484712505545, guid: adcad94290c6d454395df3b065b2568e, type: 2}
+  - {fileID: 4800000, guid: e7c77f6eaab324a819efdc13b8125a39, type: 3}
+  - {fileID: 4800000, guid: 6743a50a812740be8c0aa3fccc46fae9, type: 3}
   metroInputSource: 0
   wsaTransparentSwapchain: 0
   xboxOneDisableKinectGpuReservation: 1
@@ -514,7 +517,7 @@ PlayerSettings:
   enableInternalProfiler: 0
   logObjCUncaughtExceptions: 1
   enableCrashReportAPI: 0
-  cameraUsageDescription: CardboardXR uses the camera to follow your head and hands, and to show the room around you.
+  cameraUsageDescription: ASCIIRooms uses the camera to follow your head and hands, and to show the room around you.
   locationUsageDescription: 
   microphoneUsageDescription: 
   bluetoothUsageDescription: 
@@ -778,7 +781,7 @@ PlayerSettings:
   scriptingDefineSymbols:
     Android: APP_UI_EDITOR_ONLY;SENTIS_ANALYTICS_ENABLED
     Standalone: SENTIS_ANALYTICS_ENABLED;APP_UI_EDITOR_ONLY
-    iPhone: UNITY_XR_ARKIT_LOADER_ENABLED;APP_UI_EDITOR_ONLY
+    iPhone: UNITY_XR_ARKIT_LOADER_ENABLED;APP_UI_EDITOR_ONLY;SENTIS_ANALYTICS_ENABLED
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:
@@ -804,14 +807,14 @@ PlayerSettings:
   editorAssembliesCompatibilityLevel: 1
   m_RenderingPath: 1
   m_MobileRenderingPath: 1
-  metroPackageName: CardboardXR
+  metroPackageName: ASCIIRooms
   metroPackageVersion: 
   metroCertificatePath: 
   metroCertificatePassword: 
   metroCertificateSubject: 
   metroCertificateIssuer: 
   metroCertificateNotAfter: 0000000000000000
-  metroApplicationDescription: CardboardXR
+  metroApplicationDescription: ASCIIRooms
   wsaImages: {}
   metroTileShortName: 
   metroTileShowName: 0

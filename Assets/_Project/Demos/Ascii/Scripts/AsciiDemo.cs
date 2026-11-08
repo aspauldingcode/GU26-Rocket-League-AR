@@ -20,9 +20,9 @@ namespace CardboardXR.Demos.Ascii
     {
         // Where the angel can stand ahead of the player: before the first wall that way, but never
         // nearer or farther than these.
-        const float k_AngelNearest = 2.5f;
-        const float k_AngelFarthest = 6f;
-        const float k_AngelFromWall = 0.6f;
+        const float k_AngelNearest = 3.2f;
+        const float k_AngelFarthest = 9f;
+        const float k_AngelFromWall = 0.55f;
         const float k_DipAlpha = 0.75f;
         const float k_DipSeconds = 0.12f;
         const float k_RiseSeconds = 0.45f;
@@ -97,6 +97,8 @@ namespace CardboardXR.Demos.Ascii
 
             m_People = gameObject.AddComponent<AsciiPeople>();
             m_People.Configure(core.Passthrough);
+            // Warm the segmenter before the first crossing so Setup doesn't hitch the door fade.
+            m_People.Warm();
             m_Fade = Object.FindAnyObjectByType<ScreenFade>(FindObjectsInactive.Include);
 
             m_Audio = gameObject.AddComponent<AudioSource>();
@@ -236,6 +238,7 @@ namespace CardboardXR.Demos.Ascii
         void ApplyCrossing(bool inside)
         {
             SetInsideWorld(inside);
+            // Planes remap over a few frames so the door fade isn't blocked for a long hitch.
             m_Surfaces?.SetDrawn(inside);
             m_Meshes?.SetActive(inside);
             m_Angels?.SetInside(inside);
@@ -243,7 +246,8 @@ namespace CardboardXR.Demos.Ascii
             if (inside)
             {
                 M3Fade.Hide(m_Panel.gameObject);
-                m_Quiz?.Begin();
+                // Ascii world is already live; the door sinks shut at the placement, then the game starts.
+                m_Portal?.SealDoor(() => m_Quiz?.Begin());
             }
             else
             {
@@ -404,7 +408,7 @@ namespace CardboardXR.Demos.Ascii
             else if (!m_Portal.IsInside)
                 m_Hint.text = "Passthrough room outside. Green ASCII through the gate.\nWalk through to play. Unplug first if it's on a cable.";
             else
-                m_Hint.text = "Answer the questions. Look at the angel to freeze it.";
+                m_Hint.text = "Answer in front. Be quick! Look behind you to slow the angels.";
         }
 
         void BuildPanel()
