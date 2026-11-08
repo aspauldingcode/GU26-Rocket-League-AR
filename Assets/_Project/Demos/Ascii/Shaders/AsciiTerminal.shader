@@ -113,6 +113,14 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
                 float2 uv = input.texcoord;
+                float rawDepth = SampleSceneDepth(uv);
+#if UNITY_REVERSED_Z
+                if (rawDepth <= 1e-5)
+#else
+                if (rawDepth >= 0.99999)
+#endif
+                    return half4(0.0, 0.0, 0.0, 1.0);
+
                 float2 size = max(_BlitTexture_TexelSize.zw, float2(1.0, 1.0));
                 float2 pixel = uv * size;
 

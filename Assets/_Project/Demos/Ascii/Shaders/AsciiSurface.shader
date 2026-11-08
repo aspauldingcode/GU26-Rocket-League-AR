@@ -2,7 +2,7 @@ Shader "CardboardXR/Demos/AsciiSurface"
 {
     Properties
     {
-        _RoomColor ("Room", Color) = (0, 1, 0, 1)
+        _RoomColor ("Room", Color) = (0, 0, 0, 1)
         _FurnitureColor ("Furniture", Color) = (1, 0.92, 0, 1)
         _ForceFurniture ("Force Furniture", Float) = 0
         _UseMeshNormal ("Use Mesh Normal", Float) = 0
