@@ -38,6 +38,8 @@ namespace CardboardXR.Stereo
         Camera m_CastCamera;
         // Where Configure put the cast camera under the rig: between the eyes.
         Vector3 m_EyeLocalPosition;
+        // The cast camera is looking through the camera image's frustum, not its own field of view.
+        bool m_ImageProjection;
         bool m_Casting;
         string m_Room;
         float m_NextFrame;
@@ -271,8 +273,9 @@ namespace CardboardXR.Stereo
         // While passthrough is on, the camera image is pinned to the pose it was taken from, and
         // in a viewer the eyes follow the faster fused head pose, so it trails around the view.
         // That's right in the headset, but on a flat screen it's the camera picture swimming in
-        // the frame. The cast sees from the AR camera instead, like the phone's own single view,
-        // so the picture holds still. Set as the cast camera renders, to match this frame's pose.
+        // the frame. The cast sees from the AR camera instead, through the image's own frustum
+        // cropped to the page's shape, so the picture fills the frame edge to edge and holds still.
+        // Set as the cast camera renders, to match this frame's pose and image.
         void PlaceCastCamera(ScriptableRenderContext context, Camera camera)
         {
             if (camera != m_CastCamera || m_CastCamera == null)
@@ -280,15 +283,45 @@ namespace CardboardXR.Stereo
             if (m_Passthrough == null)
                 m_Passthrough = FindAnyObjectByType<PassthroughController>();
             var camTransform = m_CastCamera.transform;
-            if (m_Passthrough != null && m_Passthrough.IsOn && m_Passthrough.CameraTransform != null)
+            var frustum = m_Passthrough != null ? m_Passthrough.ImageFrustum : Vector4.zero;
+            if (m_Passthrough != null && m_Passthrough.IsOn && m_Passthrough.CameraImage != null &&
+                m_Passthrough.CameraTransform != null && frustum.z > 0f && frustum.w > 0f)
             {
                 var ar = m_Passthrough.CameraTransform;
                 camTransform.SetPositionAndRotation(ar.position, ar.rotation);
+                m_CastCamera.projectionMatrix = CoverProjection(frustum, Aspect, m_CastCamera.nearClipPlane, m_CastCamera.farClipPlane);
+                m_ImageProjection = true;
             }
             else
             {
                 camTransform.SetLocalPositionAndRotation(m_EyeLocalPosition, Quaternion.identity);
+                if (m_ImageProjection)
+                {
+                    m_CastCamera.ResetProjectionMatrix();
+                    m_CastCamera.aspect = Aspect;
+                    m_ImageProjection = false;
+                }
             }
+        }
+
+        // A little inside the image, so its edge texels and the screen's border never show.
+        const float k_CoverInset = 0.985f;
+
+        // The largest rectangle of the given aspect inside the camera image's frustum (center xy,
+        // size zw at unit distance), centered on it, as an off-axis projection. Pure, for testing.
+        public static Matrix4x4 CoverProjection(Vector4 frustum, float aspect, float near, float far)
+        {
+            var width = frustum.z;
+            var height = frustum.w;
+            if (width / height > aspect)
+                width = height * aspect;
+            else
+                height = width / aspect;
+            width *= k_CoverInset;
+            height *= k_CoverInset;
+            return Matrix4x4.Frustum(
+                (frustum.x - width / 2f) * near, (frustum.x + width / 2f) * near,
+                (frustum.y - height / 2f) * near, (frustum.y + height / 2f) * near, near, far);
         }
 
         void OnDestroy()

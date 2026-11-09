@@ -175,6 +175,36 @@ namespace CardboardXR.Stereo.Tests
             Assert.That(bad, Is.EqualTo(16f / 9f).Within(0.001f));
         }
 
+        // With passthrough on, the camera image fills the page's frame: the frame is the largest
+        // rectangle of the page's shape inside the image, on its center, so no border shows.
+        [TestCase(16f / 9f)]
+        [TestCase(4f / 3f)]
+        [TestCase(1f)]
+        public void PassthroughCastIsTheCameraImageCroppedToThePagesShape(float aspect)
+        {
+            // A 4:3 image about 63 by 50 degrees, a little off center, at unit distance.
+            var frustum = new Vector4(0.03f, -0.02f, 1.24f, 0.93f);
+            var projection = WebRtcCastHost.CoverProjection(frustum, aspect, 0.05f, 100f);
+
+            Vector2 Ndc(float x, float y)
+            {
+                var clip = projection * new Vector4(x, y, -1f, 1f);
+                return new Vector2(clip.x / clip.w, clip.y / clip.w);
+            }
+
+            // Unity cameras look down -z in view space; the image's x and y are at unit distance.
+            var center = Ndc(frustum.x, frustum.y);
+            Assert.That(center.x, Is.EqualTo(0f).Within(1e-4f));
+            Assert.That(center.y, Is.EqualTo(0f).Within(1e-4f));
+            // The image's corners are outside the frame, so it covers it.
+            var corner = Ndc(frustum.x + frustum.z / 2f, frustum.y + frustum.w / 2f);
+            Assert.That(Mathf.Max(corner.x, corner.y), Is.GreaterThanOrEqualTo(1f));
+            Assert.That(Mathf.Min(corner.x, corner.y), Is.GreaterThanOrEqualTo(1f - 0.02f));
+            // The frame has the page's shape.
+            var frameAspect = projection.m11 / projection.m00;
+            Assert.That(frameAspect, Is.EqualTo(aspect).Within(1e-3f));
+        }
+
         [Test]
         public void CastFrameFollowsTheWebsitesAspect()
         {
