@@ -39,12 +39,19 @@ done
 
 # The phone, by UDID. Xcode remembers paired devices even when they're unplugged ("unavailable"), so
 # this takes one that's reachable: "connected", or "available (paired)", which an idle phone drops
-# to and devicectl reconnects on first use. Override with CARDBOARDXR_UDID=... to pick a specific
-# phone when more than one is plugged in.
-UDID=${CARDBOARDXR_UDID:-$(xcrun devicectl list devices --columns UDID \
-    --hide-default-columns --hide-headers \
-    --filter "State BEGINSWITH 'available' OR State BEGINSWITH 'connected'" 2>/dev/null \
-    | head -1 | tr -d '[:space:]')}
+# to and devicectl reconnects on first use. Only iPhones and iPads: a paired Apple Watch is
+# "available" too. Override with CARDBOARDXR_UDID=... to pick a specific phone when more than one
+# is plugged in.
+DEVICES_JSON=$LOGS/devices.json
+UDID=${CARDBOARDXR_UDID:-$(xcrun devicectl list devices --json-output $DEVICES_JSON >/dev/null 2>&1 &&
+    /usr/bin/python3 -c '
+import json, sys
+for d in json.load(open(sys.argv[1]))["result"]["devices"]:
+    h, c = d["hardwareProperties"], d["connectionProperties"]
+    if h.get("platform") == "iOS" and c.get("tunnelState") != "unavailable":
+        print(h["udid"])
+        break
+' $DEVICES_JSON 2>/dev/null)}
 if [ -z "$UDID" ]; then
     echo "No connected iPhone. Plug it in, unlock it, and trust this Mac."
     echo "Or set CARDBOARDXR_UDID to the UDID from: xcrun devicectl list devices"
