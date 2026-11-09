@@ -18,6 +18,17 @@ namespace CardboardXR.Stereo.Tests
         }
 
         [Test]
+        public void OnlyEndEventsFromTheHostPageStopTheShare()
+        {
+            Assert.IsTrue(WebRtcCastHost.IsEndEvent("ended:viewer-left"));
+            Assert.IsTrue(WebRtcCastHost.IsEndEvent("ended:viewer-gone"));
+            Assert.IsTrue(WebRtcCastHost.IsEndEvent("ended:no-viewer"));
+            Assert.IsFalse(WebRtcCastHost.IsEndEvent("viewer-joined"));
+            Assert.IsFalse(WebRtcCastHost.IsEndEvent(""));
+            Assert.IsFalse(WebRtcCastHost.IsEndEvent(null));
+        }
+
+        [Test]
         public void ViewerUrlCarriesTheRoomAndNotHostRole()
         {
             var url = WebRtcCast.ViewerUrl("demo42ab");

@@ -83,6 +83,7 @@ namespace CardboardXR.Stereo
                 if (m_Cast == null)
                     m_Cast = gameObject.AddComponent<WebRtcCastHost>();
                 m_Cast.Configure(m_Rig);
+                m_Cast.Ended += () => ShowToast("Viewer page closed — stopped sharing");
             }
             BuildUi();
             BuildWorldCastUi();

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
@@ -15,13 +16,32 @@ namespace CardboardXR.Stereo
         IntPtr m_View;
 #endif
         bool m_Ready;
+        // What the page told the app (webrtc.js notifyApp), oldest first.
+        readonly ConcurrentQueue<string> m_Events = new();
 
         public bool IsReady => m_Ready;
+
+        // An event from the page, such as "ended:viewer-left", if one is waiting.
+        public bool TryTakeEvent(out string pageEvent)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            PollAndroidEvents();
+#elif UNITY_IOS && !UNITY_EDITOR
+            if (m_View != IntPtr.Zero)
+            {
+                var native = CardboardXR_CastTakeEvent(m_View);
+                if (!string.IsNullOrEmpty(native))
+                    m_Events.Enqueue(native);
+            }
+#endif
+            return m_Events.TryDequeue(out pageEvent);
+        }
 
         public void Open(string url)
         {
             Close();
             m_Ready = false;
+            while (m_Events.TryDequeue(out _)) { }
 #if UNITY_ANDROID && !UNITY_EDITOR
             OpenAndroid(url);
 #elif UNITY_IOS && !UNITY_EDITOR
@@ -128,6 +148,50 @@ namespace CardboardXR.Stereo
             return unity.GetStatic<AndroidJavaObject>("currentActivity");
         }
 
+        // A Java object with JavaScript-callable methods needs annotations Unity can't add, so
+        // Android asks the page for its events instead, a couple of times a second.
+        const float k_EventPollSeconds = 0.5f;
+        float m_NextEventPoll;
+        EventsCallback m_EventsCallback;
+
+        void PollAndroidEvents()
+        {
+            if (m_WebView == null || Time.unscaledTime < m_NextEventPoll)
+                return;
+            m_NextEventPoll = Time.unscaledTime + k_EventPollSeconds;
+            m_EventsCallback ??= new EventsCallback(this);
+            var callback = m_EventsCallback;
+            using var activity = Activity();
+            activity.Call("runOnUiThread", new AndroidJavaRunnable(() =>
+            {
+                m_WebView?.Call("evaluateJavascript", "window.__cast&&window.__cast.takeEvents?window.__cast.takeEvents():''", callback);
+            }));
+        }
+
+        sealed class EventsCallback : AndroidJavaProxy
+        {
+            readonly WebRtcCastWebView m_Owner;
+
+            public EventsCallback(WebRtcCastWebView owner) : base("android.webkit.ValueCallback")
+            {
+                m_Owner = owner;
+            }
+
+            // The result arrives as a JSON string literal: quoted, with \n between events.
+            // ReSharper disable once InconsistentNaming
+            public void onReceiveValue(string json)
+            {
+                if (string.IsNullOrEmpty(json) || json == "null" || json == "\"\"")
+                    return;
+                var text = json.Length >= 2 && json[0] == '"' ? json.Substring(1, json.Length - 2) : json;
+                foreach (var line in text.Replace("\\n", "\n").Split('\n'))
+                {
+                    if (line.Length > 0)
+                        m_Owner.m_Events.Enqueue(line.Replace("\\\"", "\"").Replace("\\\\", "\\"));
+                }
+            }
+        }
+
         sealed class PageClient : AndroidJavaProxy
         {
             readonly WebRtcCastWebView m_Owner;
@@ -168,6 +232,9 @@ namespace CardboardXR.Stereo
 
         [DllImport("__Internal")]
         static extern void CardboardXR_CastEval(IntPtr view, string js);
+
+        [DllImport("__Internal")]
+        static extern string CardboardXR_CastTakeEvent(IntPtr view);
 #endif
     }
 }

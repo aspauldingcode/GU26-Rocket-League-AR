@@ -13,8 +13,29 @@
 }
 @end
 
+// Events the host page sends the app (webrtc.js notifyApp), such as "ended:viewer-left",
+// queued for Unity to take with CardboardXR_CastTakeEvent. Both run on the main thread.
+@interface CardboardXRCastEvents : NSObject <WKScriptMessageHandler>
+@property(nonatomic, strong) NSMutableArray<NSString *> *queue;
+@end
+
+@implementation CardboardXRCastEvents
+- (instancetype)init
+{
+    if ((self = [super init]))
+        _queue = [NSMutableArray new];
+    return self;
+}
+
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message
+{
+    [self.queue addObject:[NSString stringWithFormat:@"%@", message.body]];
+}
+@end
+
 @interface CardboardXRCastHostView : NSObject
 @property(nonatomic, strong) WKWebView *webView;
+@property(nonatomic, strong) CardboardXRCastEvents *events;
 @end
 
 @implementation CardboardXRCastHostView
@@ -78,6 +99,8 @@ void *CardboardXR_CastOpen(const char *url)
     if (@available(iOS 10.0, *))
         config.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
     [config.userContentController addScriptMessageHandler:[CardboardXRCastLog new] name:@"castlog"];
+    host.events = [CardboardXRCastEvents new];
+    [config.userContentController addScriptMessageHandler:host.events name:@"castevent"];
 
     CardboardXR_CastRunOnMain(^{
         // On screen but invisible: WebKit suspends the page of a hidden or off-screen web view,
@@ -112,9 +135,24 @@ void CardboardXR_CastClose(void *handle)
                   completionHandler:^(id result, NSError *error) {
             [webView stopLoading];
             [webView.configuration.userContentController removeScriptMessageHandlerForName:@"castlog"];
+            [webView.configuration.userContentController removeScriptMessageHandlerForName:@"castevent"];
             [webView removeFromSuperview];
         }];
     });
+}
+
+// The oldest event not yet taken, or NULL. The marshaller frees the copy.
+const char *CardboardXR_CastTakeEvent(void *handle)
+{
+    if (handle == NULL)
+        return NULL;
+    CardboardXRCastHostView *host = (__bridge CardboardXRCastHostView *)handle;
+    NSMutableArray<NSString *> *queue = host.events.queue;
+    if (queue.count == 0)
+        return NULL;
+    NSString *event = queue.firstObject;
+    [queue removeObjectAtIndex:0];
+    return strdup(event.UTF8String);
 }
 
 void CardboardXR_CastEval(void *handle, const char *js)

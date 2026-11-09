@@ -102,6 +102,12 @@
     return doublesFrames(codec) ? { w: 2560, h: 1440 } : { w: 1280, h: 720 };
   }
   var VIEWER_STALE_MS = 8000;
+  // A viewer that watched and then went silent this long has gone (a refresh's goodbye can be
+  // lost as the page unloads). Viewers report every 2 s; generous for a slow network.
+  var VIEWER_GONE_MS = 20000;
+  // A phone that never heard from any viewer this long after taking the room: the QR's page
+  // was already gone when it was scanned.
+  var NO_VIEWER_MS = 60000;
   // Viewers that join or lose a packet ask for a keyframe, so the timed ones are only a backstop.
   // Each costs several frames' bits, and under VBR the frames around it go soft: frequent ones
   // make the picture pulse.
@@ -210,9 +216,14 @@
     };
   }
 
-  // Viewer → host, every couple of seconds: "id|mode|codecs|wantKey|lost".
+  // Viewer → host, every couple of seconds: "id|mode|codecs|wantKey|lost". Mode "bye" when
+  // the viewer page goes away (refresh, close, Leave).
   function packControl(id, mode, codecs, wantKey, lost) {
     return [id, mode, codecs.join(","), wantKey ? 1 : 0, lost | 0].join("|");
+  }
+
+  function packBye(id) {
+    return packControl(id, "bye", [], false, 0);
   }
 
   function parseControl(payload) {
@@ -220,6 +231,7 @@
     if (parts.length < 5 || !parts[0]) return null;
     return {
       id: parts[0],
+      bye: parts[1] === "bye",
       mode: parts[1] === "avc" ? "avc" : "jpeg",
       codecs: parts[2] ? parts[2].split(",") : [],
       wantKey: parts[3] === "1",
@@ -412,6 +424,7 @@
     packBundle: packBundle,
     unpackBundle: unpackBundle,
     packControl: packControl,
+    packBye: packBye,
     parseControl: parseControl,
     chooseMode: chooseMode,
     nextLevel: nextLevel,
@@ -1179,9 +1192,27 @@
       });
     }
 
+    // A reload or close mints a new room for the next load, so the phone's stream into this one
+    // would go nowhere: tell it to stop. Sent as the page goes; the phone also notices silence.
+    var saidBye = false;
+    function sayBye() {
+      if (saidBye) return;
+      saidBye = true;
+      var client = relay && relay.client;
+      if (!client || !client.connected) return;
+      try { client.publish(controlTopic(code), packBye(viewerId), { qos: 0 }); } catch (e) {}
+    }
+    window.addEventListener("pagehide", sayBye);
+    window.addEventListener("beforeunload", sayBye);
+    // Background tabs run timers rarely; report in as soon as the tab is back.
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") sendControl();
+    });
+
     window.__viewer = {
       reconnect: function () { connect(); },
       leave: function () {
+        sayBye();
         stopped = true;
         if (relay) relay.end();
         // Reloading mints a fresh room, like any new load.
@@ -1211,6 +1242,21 @@
     var stopped = false;
     var sent = 0;
     var dropped = 0;
+    // Whether any viewer has reported in, and when the last one did.
+    var everWatched = false;
+    var lastViewerAt = 0;
+    var relayUpSince = 0;
+    var lastGoneCheckAt = 0;
+    var appEvents = [];
+
+    // To the app around this page: iOS takes them as they happen, Android polls takeEvents.
+    function notifyApp(event) {
+      appEvents.push(event);
+      try {
+        var bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.castevent;
+        if (bridge) bridge.postMessage(String(event));
+      } catch (e) {}
+    }
 
     // One phone holds the room at a time. A second phone that scanned the same QR yields
     // (its frames would otherwise interleave into the presenter's stream) and takes over
@@ -1334,6 +1380,15 @@
     function onControl(payload) {
       var ctl = parseControl(payload);
       if (!ctl) return;
+      if (ctl.bye) {
+        if (!viewers[ctl.id]) return;
+        delete viewers[ctl.id];
+        log("viewer " + ctl.id + " left");
+        if (!freshViewerCount(Date.now())) endCast("viewer-left");
+        return;
+      }
+      lastViewerAt = Date.now();
+      everWatched = true;
       var isNew = !viewers[ctl.id];
       viewers[ctl.id] = { mode: ctl.mode, codecs: ctl.codecs, at: Date.now() };
       stats.lost += ctl.lost;
@@ -1400,6 +1455,8 @@
         encoders: encoderCodecs, viewers: Object.keys(viewers).length,
       };
       if (stopped) return;
+      checkViewerGone(Date.now(), relayConnected);
+      if (stopped) return;
       if (!relayConnected) {
         if (!relayDownSince) relayDownSince = Date.now();
         else if (relay && Date.now() - relayDownSince > 25000) {
@@ -1417,6 +1474,45 @@
       }
       if (!claimed) tryClaim();
     }, 1500);
+
+    function freshViewerCount(now) {
+      var n = 0;
+      for (var id in viewers) {
+        if (Object.prototype.hasOwnProperty.call(viewers, id) && now - viewers[id].at < VIEWER_STALE_MS) n++;
+      }
+      return n;
+    }
+
+    // The stream is for the page whose QR was scanned, and every load of that page is a new
+    // room: once it's gone (refreshed, closed, Leave) nothing will watch this room again. Stop
+    // here and tell the app, so Share turns off on the phone instead of streaming into nothing.
+    function endCast(reason) {
+      if (stopped) return;
+      log("stream ended: " + reason);
+      notifyApp("ended:" + reason);
+      destroy();
+    }
+
+    // Silence counts only while our own link is up, so a relay outage here isn't mistaken
+    // for the viewer leaving.
+    // A long gap between ticks means this page was suspended (app in the background): what
+    // arrived meanwhile hasn't been read yet, so restart the clock rather than judge it.
+    function checkViewerGone(now, relayConnected) {
+      var suspended = lastGoneCheckAt && now - lastGoneCheckAt > 6000;
+      lastGoneCheckAt = now;
+      if (!relayConnected || suspended) {
+        relayUpSince = 0;
+        return;
+      }
+      if (!relayUpSince) relayUpSince = now;
+      if (!claimed) return;
+      var linkUp = now - relayUpSince;
+      if (everWatched) {
+        if (now - lastViewerAt > VIEWER_GONE_MS && linkUp > VIEWER_GONE_MS) endCast("viewer-gone");
+      } else if (now - claimTs > NO_VIEWER_MS && linkUp > NO_VIEWER_MS) {
+        endCast("no-viewer");
+      }
+    }
 
     function destroy() {
       stopped = true;
@@ -1889,6 +1985,12 @@
       },
       setStatus: setStatus,
       destroy: destroy,
+      // For Android, which polls: events since the last call, one per line.
+      takeEvents: function () {
+        var out = appEvents.join("\n");
+        appEvents = [];
+        return out;
+      },
     };
 
     window.addEventListener("pagehide", destroy);

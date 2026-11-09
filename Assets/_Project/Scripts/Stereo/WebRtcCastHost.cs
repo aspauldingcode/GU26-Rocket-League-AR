@@ -228,12 +228,39 @@ namespace CardboardXR.Stereo
                 SoftReconnectHost();
         }
 
+        // The page ends the stream itself once the viewer page is gone; a refresh there makes
+        // a new room, so this one is finished. True if sharing stopped.
+        bool TakeHostPageEvents()
+        {
+            if (m_WebView == null)
+                return false;
+            while (m_WebView.TryTakeEvent(out var pageEvent))
+            {
+                if (!IsEndEvent(pageEvent))
+                    continue;
+                Debug.Log($"[Cast] Viewer page went away ({pageEvent}); stopping the share");
+                StopCast();
+                Ended?.Invoke();
+                return true;
+            }
+            return false;
+        }
+
+        // "ended:viewer-left", "ended:viewer-gone", "ended:no-viewer". Pure, for testing.
+        public static bool IsEndEvent(string pageEvent) =>
+            pageEvent != null && pageEvent.StartsWith("ended:", StringComparison.Ordinal);
+
+        // Raised when sharing stops because the viewer page went away, not on StopCast.
+        public event Action Ended;
+
         void LateUpdate()
         {
             if (!m_Casting)
                 return;
 
             WatchHostPage();
+            if (TakeHostPageEvents())
+                return;
 
             // Continuous guard: never let the cast camera lose its RT (would paint the phone).
             if (m_CastCamera != null && m_CastCamera.enabled)
