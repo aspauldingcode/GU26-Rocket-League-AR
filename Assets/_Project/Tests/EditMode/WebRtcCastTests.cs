@@ -194,18 +194,19 @@ namespace CardboardXR.Stereo.Tests
         }
 
         [Test]
-        public void SourceLevelsGetSmallerAndStayMacroblockAligned()
+        public void SourceLevelsAreCleanFractionsOf720WithAlignedWidths()
         {
-            for (var level = 1; level < WebRtcCastHost.k_SourceLevelCount; level++)
-                Assert.That(WebRtcCastHost.SourceHeight(level), Is.LessThan(WebRtcCastHost.SourceHeight(level - 1)));
+            var fractions = new[] { 1f, 0.75f, 0.5f };
+            Assert.That(WebRtcCastHost.k_SourceLevelCount, Is.EqualTo(fractions.Length));
             for (var level = 0; level < WebRtcCastHost.k_SourceLevelCount; level++)
             {
+                Assert.That(WebRtcCastHost.SourceHeight(level), Is.EqualTo(Mathf.RoundToInt(720 * fractions[level])));
                 var size = WebRtcCastHost.FrameSizeFor(1.6f, level);
                 Assert.That(size.x % 16, Is.Zero);
-                Assert.That(size.y % 16, Is.Zero);
+                Assert.That(size.y % 2, Is.Zero);
             }
             Assert.That(WebRtcCastHost.FrameSizeFor(16f / 9f, WebRtcCastHost.k_SourceLevelCount - 1),
-                Is.EqualTo(new Vector2Int(768, 432)));
+                Is.EqualTo(new Vector2Int(640, 360)));
         }
 
         [Test]

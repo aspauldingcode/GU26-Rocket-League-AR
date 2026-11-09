@@ -3,6 +3,7 @@ using System.Collections;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
 
 namespace CardboardXR.Stereo
@@ -30,10 +31,13 @@ namespace CardboardXR.Stereo
 
         [SerializeField] StereoRig m_Rig;
 
+        PassthroughController m_Passthrough;
         WebRtcCastWebView m_WebView;
         RenderTexture m_Capture;
         Texture2D m_Readback;
         Camera m_CastCamera;
+        // Where Configure put the cast camera under the rig: between the eyes.
+        Vector3 m_EyeLocalPosition;
         bool m_Casting;
         string m_Room;
         float m_NextFrame;
@@ -65,11 +69,13 @@ namespace CardboardXR.Stereo
             return new Vector2Int(width, height);
         }
 
+        // 1, 3/4 and 1/2 of 720: the picture is a grid of small glyphs, and an odd scale resamples
+        // each one differently, which shimmers once encoded.
         public static int SourceHeight(int level) => Mathf.Clamp(level, 0, k_SourceLevelCount - 1) switch
         {
             0 => 720,
-            1 => 576,
-            _ => 432,
+            1 => 540,
+            _ => 360,
         };
 
         // The phone's own frame rate votes on the source size: a sustained run of slow frames
@@ -254,7 +260,36 @@ namespace CardboardXR.Stereo
             StartCoroutine(PushFrame());
         }
 
-        void OnDisable() => StopCast();
+        void OnEnable() => RenderPipelineManager.beginCameraRendering += PlaceCastCamera;
+
+        void OnDisable()
+        {
+            RenderPipelineManager.beginCameraRendering -= PlaceCastCamera;
+            StopCast();
+        }
+
+        // While passthrough is on, the camera image is pinned to the pose it was taken from, and
+        // in a viewer the eyes follow the faster fused head pose, so it trails around the view.
+        // That's right in the headset, but on a flat screen it's the camera picture swimming in
+        // the frame. The cast sees from the AR camera instead, like the phone's own single view,
+        // so the picture holds still. Set as the cast camera renders, to match this frame's pose.
+        void PlaceCastCamera(ScriptableRenderContext context, Camera camera)
+        {
+            if (camera != m_CastCamera || m_CastCamera == null)
+                return;
+            if (m_Passthrough == null)
+                m_Passthrough = FindAnyObjectByType<PassthroughController>();
+            var camTransform = m_CastCamera.transform;
+            if (m_Passthrough != null && m_Passthrough.IsOn && m_Passthrough.CameraTransform != null)
+            {
+                var ar = m_Passthrough.CameraTransform;
+                camTransform.SetPositionAndRotation(ar.position, ar.rotation);
+            }
+            else
+            {
+                camTransform.SetLocalPositionAndRotation(m_EyeLocalPosition, Quaternion.identity);
+            }
+        }
 
         void OnDestroy()
         {
@@ -415,6 +450,7 @@ namespace CardboardXR.Stereo
                 m_CastCamera.stereoTargetEye = StereoTargetEyeMask.None;
                 m_CastCamera.fieldOfView = 60f;
             }
+            m_EyeLocalPosition = m_CastCamera.transform.localPosition;
             // Re-assert after Configure — never allow a screen-bound cast camera.
             m_CastCamera.targetTexture = m_Capture;
             // Lock the frustum to the website's frame; Unity otherwise uses the phone screen's aspect.

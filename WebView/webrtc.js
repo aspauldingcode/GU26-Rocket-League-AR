@@ -89,7 +89,10 @@
   // H.264 in preference order. Level 3.1 covers the largest rung (1280x720 at 15 fps).
   var AVC_CODECS = ["avc1.64001F", "avc1.4D401F", "avc1.42E01F"];
   var VIEWER_STALE_MS = 8000;
-  var KEYFRAME_MS = 3000;
+  // Viewers that join or lose a packet ask for a keyframe, so the timed ones are only a backstop.
+  // Each costs several frames' bits, and under VBR the frames around it go soft: frequent ones
+  // make the picture pulse.
+  var KEYFRAME_MS = 8000;
 
   function toBytes(payload) {
     if (!payload) return new Uint8Array(0);
@@ -213,14 +216,16 @@
   }
 
   // Quality ladder, best first. VBR targets: the encoder spends bits where the picture
-  // changes and coasts on still frames.
+  // changes and coasts on still frames. Heights are the 720p source at 1, 3/4 and 1/2: the
+  // picture is a grid of small glyphs, and an odd scale such as 0.8 resamples each glyph
+  // differently, which shimmers and costs the encoder bits. Bitrate drops before size does.
   var LADDER = [
     { h: 720, kbps: 3200, fps: 15 },
-    { h: 720, kbps: 2300, fps: 15 },
-    { h: 576, kbps: 1600, fps: 15 },
-    { h: 480, kbps: 1100, fps: 12 },
-    { h: 368, kbps: 700, fps: 10 },
-    { h: 288, kbps: 420, fps: 8 },
+    { h: 720, kbps: 2400, fps: 15 },
+    { h: 720, kbps: 1700, fps: 15 },
+    { h: 540, kbps: 1100, fps: 12 },
+    { h: 360, kbps: 650, fps: 10 },
+    { h: 360, kbps: 400, fps: 8 },
   ];
   var START_LEVEL = 2;
 
@@ -325,11 +330,12 @@
     return out;
   }
 
-  // Sharpen harder the more the display enlarges the frame; never zero, since even 1:1 H.264
-  // softens edges.
+  // Sharpen only what the display enlarges, harder the more it does. At 1:1 the glyphs are
+  // already crisp, and sharpening would only lift the codec's ringing around them.
   function sharpnessFor(frameHeight, displayHeight) {
     var scale = frameHeight > 0 ? displayHeight / frameHeight : 1;
-    return Math.max(0.45, Math.min(0.9, 0.45 + 0.3 * (scale - 1)));
+    if (scale <= 1.05) return 0;
+    return Math.min(0.9, 0.3 + 0.4 * (scale - 1));
   }
 
   // Presence on the hello topic, retained: "1:{token}:{ts}" while a phone holds the room
@@ -578,7 +584,7 @@
     "  vec3 mn = min(c, min(min(n, s), min(e, w)));",
     "  vec3 mx = max(c, max(max(n, s), max(e, w)));",
     "  vec3 amp = sqrt(clamp(min(mn, 1.0 - mx) / max(mx, vec3(0.0001)), 0.0, 1.0));",
-    "  vec3 wt = amp * (-1.0 / mix(8.0, 5.0, sharp));",
+    "  vec3 wt = amp * (-0.2 * sharp);",
     "  gl_FragColor = vec4(clamp((c + (n + s + e + w) * wt) / (1.0 + 4.0 * wt), 0.0, 1.0), 1.0);",
     "}",
   ].join("\n");
