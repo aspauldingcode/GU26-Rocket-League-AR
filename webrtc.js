@@ -86,8 +86,21 @@
   function videoTopic(code) { return TOPIC_PREFIX + code + "/v"; }
   function controlTopic(code) { return TOPIC_PREFIX + code + "/c"; }
 
-  // H.264 in preference order. Level 3.1 covers the largest rung (1280x720 at 15 fps).
-  var AVC_CODECS = ["avc1.64001F", "avc1.4D401F", "avc1.42E01F"];
+  // H.264 in preference order. H.264 keeps color at half resolution each way (4:2:0), which
+  // smears the colored edge of every glyph stroke whatever the bitrate; a frame sent at twice
+  // its size with each pixel doubled keeps one color sample per source pixel, and the viewer
+  // shrinks it back. That needs level 5.1 (2560x1440); without it, level 3.1 at plain size.
+  var AVC_CODECS = ["avc1.640033", "avc1.4D4033", "avc1.64001F", "avc1.4D401F", "avc1.42E01F"];
+
+  // Whether frames in this codec go out doubled: its level (last byte) is 5.0 or higher.
+  function doublesFrames(codec) {
+    return parseInt(String(codec).slice(-2), 16) >= 0x32;
+  }
+
+  // The largest frame a codec is asked to carry, for probing support.
+  function probeSize(codec) {
+    return doublesFrames(codec) ? { w: 2560, h: 1440 } : { w: 1280, h: 720 };
+  }
   var VIEWER_STALE_MS = 8000;
   // Viewers that join or lose a packet ask for a keyframe, so the timed ones are only a backstop.
   // Each costs several frames' bits, and under VBR the frames around it go soft: frequent ones
@@ -108,12 +121,13 @@
     try { return new TextDecoder().decode(toBytes(payload)); } catch (e) { return ""; }
   }
 
-  // Video packet: "GV", version 1, flags (bit 0 = keyframe), u16 sequence, u16 width,
-  // u16 height, u32 timestamp in ms, codec string (length-prefixed), Annex-B access unit.
-  function packVideo(seq, key, width, height, tsMs, codec, data) {
+  // Video packet: "GV", version 1, flags (bit 0 = keyframe, bit 1 = pixels doubled), u16
+  // sequence, u16 width, u16 height (as encoded), u32 timestamp in ms, codec string
+  // (length-prefixed), Annex-B access unit.
+  function packVideo(seq, key, width, height, tsMs, codec, data, doubled) {
     var c = new TextEncoder().encode(codec);
     var out = new Uint8Array(15 + c.length + data.length);
-    out[0] = 0x47; out[1] = 0x56; out[2] = 1; out[3] = key ? 1 : 0;
+    out[0] = 0x47; out[1] = 0x56; out[2] = 1; out[3] = (key ? 1 : 0) | (doubled ? 2 : 0);
     out[4] = (seq >> 8) & 255; out[5] = seq & 255;
     out[6] = (width >> 8) & 255; out[7] = width & 255;
     out[8] = (height >> 8) & 255; out[9] = height & 255;
@@ -131,6 +145,21 @@
   // u32-length-prefixed video packets.
   var PUBLISH_MS = 125;
   var BUNDLE_MAX = 6;
+  // Well under the broker's 1 MB message limit, even when a large keyframe leads the bundle.
+  var BUNDLE_BYTES = 524288;
+
+  // How many of the queued packets the next bundle takes: up to BUNDLE_MAX and BUNDLE_BYTES,
+  // and always at least one.
+  function bundleCount(queue) {
+    var bytes = 0;
+    var n = 0;
+    while (n < queue.length && n < BUNDLE_MAX) {
+      bytes += queue[n].length + 4;
+      if (n > 0 && bytes > BUNDLE_BYTES) break;
+      n++;
+    }
+    return n;
+  }
 
   function packBundle(packets) {
     var total = 4;
@@ -171,6 +200,7 @@
     if (b.length <= 15 + codecLen) return null;
     return {
       key: (b[3] & 1) === 1,
+      doubled: (b[3] & 2) === 2,
       seq: (b[4] << 8) | b[5],
       width: (b[6] << 8) | b[7],
       height: (b[8] << 8) | b[9],
@@ -218,16 +248,27 @@
   // Quality ladder, best first. VBR targets: the encoder spends bits where the picture
   // changes and coasts on still frames. Heights are the 720p source at 1, 3/4 and 1/2: the
   // picture is a grid of small glyphs, and an odd scale such as 0.8 resamples each glyph
-  // differently, which shimmers and costs the encoder bits. Bitrate drops before size does.
+  // differently, which shimmers and costs the encoder bits.
+  // h is the picture's own height; doubled frames are encoded at twice that each way. The
+  // terminal's glyph grid is fixed to the screen, so as the view moves each tile changes letter
+  // rather than sliding, and motion prediction can't reuse it: frames cost nearly all-new detail.
+  // Starved, real-time H.264 turns that into blocks and smeared motion, so a weaker link costs
+  // frame rate first (a clean, slower picture), then size. The relay carries ~7 Mbps.
   var LADDER = [
-    { h: 720, kbps: 3200, fps: 15 },
-    { h: 720, kbps: 2400, fps: 15 },
-    { h: 720, kbps: 1700, fps: 15 },
-    { h: 540, kbps: 1100, fps: 12 },
-    { h: 360, kbps: 650, fps: 10 },
-    { h: 360, kbps: 400, fps: 8 },
+    { h: 720, kbps: 5000, fps: 12 },
+    { h: 720, kbps: 4000, fps: 10 },
+    { h: 540, kbps: 3000, fps: 10 },
+    { h: 540, kbps: 2200, fps: 8 },
+    { h: 360, kbps: 1400, fps: 8 },
+    { h: 360, kbps: 900, fps: 6 },
   ];
   var START_LEVEL = 2;
+
+  // Unsent bytes beyond which the link is falling behind: a few publishes' worth at the rung's
+  // rate, never less than a fixed floor for the small rungs.
+  function backlogLimit(rate, publishes, floor) {
+    return Math.max(floor, rate * PUBLISH_MS / 1000 * publishes);
+  }
 
   // One health verdict per second. Two bad seconds in a row step down at once; climbing back
   // needs a healthy run that doubles after each fall, so a flaky link settles instead of
@@ -239,13 +280,14 @@
     return level;
   }
 
+  // s.rate is the rung's target in bytes per second.
   function secondIsBad(s) {
-    return s.buffered > 98304 || s.flushes > 0 || s.lost > 1 || s.backlog > 2 ||
+    return s.buffered > backlogLimit(s.rate || 0, 2.5, 98304) || s.flushes > 0 || s.lost > 1 || s.backlog > 2 ||
       (s.offered > 3 && s.skipped / s.offered > 0.34);
   }
 
   function secondIsGood(s) {
-    return s.buffered < 16384 && s.flushes === 0 && s.lost === 0 && s.skipped === 0;
+    return s.buffered < backlogLimit(s.rate || 0, 0.5, 16384) && s.flushes === 0 && s.lost === 0 && s.skipped === 0;
   }
 
   function evenSize(height, aspect) {
@@ -380,6 +422,9 @@
     hasSps: hasSps,
     avccToAnnexB: avccToAnnexB,
     sharpnessFor: sharpnessFor,
+    doublesFrames: doublesFrames,
+    bundleCount: bundleCount,
+    backlogLimit: backlogLimit,
     LADDER: LADDER,
   };
 
@@ -901,11 +946,13 @@
         return false;
       }
       resetDecoder();
+      // Doubled frames are drawn at the picture's own size, which averages each 2x2 block back.
+      var div = p.doubled ? 2 : 1;
       try {
         var d = new VideoDecoder({
           output: function (frame) {
             try {
-              renderer.draw(frame, frame.displayWidth, frame.displayHeight, "video");
+              renderer.draw(frame, frame.displayWidth / div, frame.displayHeight / div, "video");
               drawFailures = 0;
               lastDecodedAt = Date.now();
               markDrawn();
@@ -942,7 +989,7 @@
       }
       expectSeq = (p.seq + 1) & 0xffff;
 
-      var key = p.codec + "/" + p.width + "x" + p.height;
+      var key = p.codec + "/" + p.width + "x" + p.height + (p.doubled ? "/2" : "");
       if (!decoder || decoder.state === "closed" || key !== decoderKey) {
         if (!p.key) {
           requestKey();
@@ -1062,7 +1109,8 @@
     function probeDecoders() {
       if (avcBroken) return Promise.resolve([]);
       return Promise.all(AVC_CODECS.map(function (codec) {
-        return VideoDecoder.isConfigSupported({ codec: codec, codedWidth: 1280, codedHeight: 720, optimizeForLatency: true })
+        var size = probeSize(codec);
+        return VideoDecoder.isConfigSupported({ codec: codec, codedWidth: size.w, codedHeight: size.h, optimizeForLatency: true })
           .then(function (r) { return r && r.supported ? codec : null; }, function () { return null; });
       })).then(function (list) { return list.filter(Boolean); }, function () { return []; });
     }
@@ -1221,7 +1269,11 @@
     var t0 = Date.now();
 
     function newStats() {
-      return { offered: 0, skipped: 0, flushes: 0, lost: 0, buffered: 0, backlog: 0, bytes: 0 };
+      return { offered: 0, skipped: 0, flushes: 0, lost: 0, buffered: 0, backlog: 0, bytes: 0, rate: 0 };
+    }
+
+    function rungRate() {
+      return LADDER[level].kbps * 125;
     }
 
     function publishHello(on) {
@@ -1446,6 +1498,27 @@
       canvasCtx.drawImage(pic.source, 0, 0, w, h);
     }
 
+    var doubleCanvas = document.createElement("canvas");
+    var doubleCtx = doubleCanvas.getContext("2d");
+
+    // The picture at w x h, then every pixel as an exact 2x2 block: the encoder's half-resolution
+    // color then lands one sample per picture pixel. Smooth scaling here would blend neighbors
+    // into the duplicates and lose that.
+    function drawDoubled(pic, w, h) {
+      var source = pic.source;
+      if (pic.w !== w || pic.h !== h) {
+        drawToCanvas(pic, w, h);
+        source = canvas;
+      }
+      if (doubleCanvas.width !== w * 2 || doubleCanvas.height !== h * 2) {
+        doubleCanvas.width = w * 2;
+        doubleCanvas.height = h * 2;
+      }
+      doubleCtx.imageSmoothingEnabled = false;
+      doubleCtx.drawImage(source, 0, 0, w * 2, h * 2);
+      return doubleCanvas;
+    }
+
     // ---- H.264 ----
 
     function encoderConfig(codec, w, h, rung, accel) {
@@ -1467,7 +1540,8 @@
       var accels = ["prefer-hardware", "no-preference"];
       function tryAccel(codec, i) {
         if (i >= accels.length) return Promise.resolve();
-        return VideoEncoder.isConfigSupported(encoderConfig(codec, 1280, 720, LADDER[1], accels[i]))
+        var size = probeSize(codec);
+        return VideoEncoder.isConfigSupported(encoderConfig(codec, size.w, size.h, LADDER[0], accels[i]))
           .then(function (r) {
             if (r && r.supported) {
               encoderCodecs.push(codec);
@@ -1528,7 +1602,8 @@
         encoderSig = sig;
         spsPps = null;
         needKey = true;
-        log("H.264 " + w + "x" + h + " VBR ~" + rung.kbps + " kbps @ " + rung.fps + " fps");
+        log("H.264 " + w + "x" + h + (doublesFrames(mode.codec) ? " (doubled, full color)" : "") +
+          " VBR ~" + rung.kbps + " kbps @ " + rung.fps + " fps");
         return true;
       } catch (err) {
         encoderFailed("configure failed: " + (err && err.message ? err.message : err));
@@ -1539,14 +1614,18 @@
     function encodeFrame(pic) {
       var rung = LADDER[level];
       var size = evenSize(Math.min(rung.h, pic.h), pic.w / pic.h);
-      if (!ensureEncoder(size.w, size.h, rung)) return;
-      drawToCanvas(pic, size.w, size.h);
+      var doubled = doublesFrames(mode.codec);
+      var k = doubled ? 2 : 1;
+      if (!ensureEncoder(size.w * k, size.h * k, rung)) return;
+      var input = canvas;
+      if (doubled) input = drawDoubled(pic, size.w, size.h);
+      else drawToCanvas(pic, size.w, size.h);
       var ts = (Date.now() - t0) * 1000;
       var key = needKey || Date.now() - lastKeyAt > KEYFRAME_MS;
       var frame = null;
       try {
-        frame = new VideoFrame(canvas, { timestamp: ts });
-        pendingMeta[ts] = { w: size.w, h: size.h, codec: mode.codec };
+        frame = new VideoFrame(input, { timestamp: ts });
+        pendingMeta[ts] = { w: size.w * k, h: size.h * k, codec: mode.codec, doubled: doubled };
         encoder.encode(frame, { keyFrame: key });
         frameFailures = 0;
       } catch (err) {
@@ -1582,7 +1661,7 @@
       var key = chunk.type === "key";
       // A viewer can only start from a keyframe that carries its own SPS/PPS.
       if (key && !hasSps(data) && spsPps) data = concatBytes(spsPps, data);
-      var packet = packVideo(seq, key, info.w, info.h, Math.floor(chunk.timestamp / 1000) >>> 0, info.codec, data);
+      var packet = packVideo(seq, key, info.w, info.h, Math.floor(chunk.timestamp / 1000) >>> 0, info.codec, data, info.doubled);
       seq = (seq + 1) & 0xffff;
       stats.bytes += data.length;
       enqueue(packet, key);
@@ -1613,12 +1692,12 @@
         return;
       }
       var wait = PUBLISH_MS - (Date.now() - lastPublishAt);
-      if (socketBufferedBytes(client) > 262144) wait = Math.max(wait, 40);
+      if (socketBufferedBytes(client) > backlogLimit(rungRate(), 7, 262144)) wait = Math.max(wait, 40);
       if (wait > 0) {
         pumpTimer = setTimeout(function () { pumpTimer = null; pump(); }, wait);
         return;
       }
-      var packet = packBundle(sendQueue.splice(0, BUNDLE_MAX));
+      var packet = packBundle(sendQueue.splice(0, bundleCount(sendQueue)));
       var generation = frameGeneration;
       sendingFrame = true;
       lastPublishAt = Date.now();
@@ -1716,7 +1795,7 @@
       var client = relay && relay.client;
       if (mode.mode === "avc") {
         return sendQueue.length > 4 || (encoder && encoder.encodeQueueSize > 1) ||
-          socketBufferedBytes(client) > 131072;
+          socketBufferedBytes(client) > backlogLimit(rungRate(), 3.5, 131072);
       }
       return sendingFrame;
     }
@@ -1759,6 +1838,7 @@
         encoderFailed("stalled");
       }
       stats.buffered = socketBufferedBytes(relay && relay.client);
+      stats.rate = rungRate();
       stats.backlog = Math.max(encoder ? encoder.encodeQueueSize : 0, sendQueue.length > 5 ? 3 : 0);
       if (stats.offered > 0) {
         var bad = secondIsBad(stats);

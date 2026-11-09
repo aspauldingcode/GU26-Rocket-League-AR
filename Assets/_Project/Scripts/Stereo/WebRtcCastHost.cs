@@ -22,8 +22,11 @@ namespace CardboardXR.Stereo
         public const float CaptureAspect = CaptureWidth / (float)CaptureHeight;
 
         public const int k_SourceLevelCount = 3;
-        const int k_SourceJpgQuality = 88;
-        const float k_SourceInterval = 1f / 15f;
+        // High enough that JPEG's own 8x8 blocks don't reach the H.264 encoder: it would spend bits
+        // reproducing them, and show them.
+        const int k_SourceJpgQuality = 94;
+        // The page's fastest rung; it would only skip frames sent faster.
+        const float k_SourceInterval = 1f / 12f;
         const int k_SlowFramesToStepDown = 30;
         const int k_FastFramesToStepUp = 150;
         // How long the hidden host page gets to finish loading before Unity reopens it.
