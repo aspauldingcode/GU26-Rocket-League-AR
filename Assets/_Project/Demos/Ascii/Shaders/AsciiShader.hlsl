@@ -99,6 +99,9 @@ half4 AsciiFrag(AsciiVaryings input) : SV_Target
 
     if (_Window > 0.5)
         return half4(1.0, 0.0, 1.0, 1.0);
+    // Outside the gate, only what this eye sees through the doorway, and only beyond it.
+    if (_AsciiPortalClip > 0.5)
+        clip(AsciiDoorInside(_WorldSpaceCameraPos, input.positionWS));
 
     float3 n = normalize(input.normalWS);
     // Same direction the terminal marches when it casts a shadow.

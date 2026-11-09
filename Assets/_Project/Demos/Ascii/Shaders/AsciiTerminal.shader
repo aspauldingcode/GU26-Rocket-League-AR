@@ -49,8 +49,6 @@ Shader "CardboardXR/Demos/AsciiTerminal"
             float _AsciiCameraOn;
             float _AsciiPersonOn;
             float _AsciiPersonBlend;
-            // 0 once the room is fully drawn; from 1 down to 0 the glyphs grow outward from the head.
-            float _AsciiWave;
             // 1 inside, where passthrough is off: nothing rendered means the void. Outside, those
             // pixels are the passthrough image.
             float _AsciiVoid;
@@ -73,6 +71,18 @@ Shader "CardboardXR/Demos/AsciiTerminal"
             float Eye(float2 uv)
             {
                 return LinearEyeDepth(SampleSceneDepth(uv), _ZBufferParams);
+            }
+
+            // Eye depth at uv, or fallback where nothing was rendered.
+            float NearOr(float2 uv, float fallback)
+            {
+                float raw = SampleSceneDepth(uv);
+#if UNITY_REVERSED_Z
+                bool empty = raw <= 1e-5;
+#else
+                bool empty = raw >= 0.99999;
+#endif
+                return empty ? fallback : LinearEyeDepth(raw, _ZBufferParams);
             }
 
             // The camera image along this pixel's view ray. With the screen off the AR camera
@@ -170,21 +180,28 @@ Shader "CardboardXR/Demos/AsciiTerminal"
 
             // Green at the tile center, or any corner — fills the jagged triangle edges of AR
             // plane meshes so wall borders still become glyphs instead of raw passthrough.
-            bool RoomCover(float2 centerUv, float2 cellUv, out half3 sample)
+            // `at` is where the green was found, for its depth: at a doorway edge the center can be
+            // outside the opening, with nothing rendered there.
+            bool RoomCover(float2 centerUv, float2 cellUv, out half3 sample, out float2 at)
             {
+                at = centerUv;
                 half4 src = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv, 0);
                 sample = src.rgb;
                 if (AsciiGreen(sample))
                     return true;
                 float2 o = cellUv * 0.42;
-                half3 a = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv + float2(-o.x, -o.y), 0).rgb;
-                half3 b = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv + float2(o.x, -o.y), 0).rgb;
-                half3 c = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv + float2(-o.x, o.y), 0).rgb;
-                half3 d = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, centerUv + float2(o.x, o.y), 0).rgb;
-                if (AsciiGreen(a)) { sample = a; return true; }
-                if (AsciiGreen(b)) { sample = b; return true; }
-                if (AsciiGreen(c)) { sample = c; return true; }
-                if (AsciiGreen(d)) { sample = d; return true; }
+                float2 ua = centerUv + float2(-o.x, -o.y);
+                float2 ub = centerUv + float2(o.x, -o.y);
+                float2 uc = centerUv + float2(-o.x, o.y);
+                float2 ud = centerUv + float2(o.x, o.y);
+                half3 a = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, ua, 0).rgb;
+                half3 b = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, ub, 0).rgb;
+                half3 c = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, uc, 0).rgb;
+                half3 d = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, ud, 0).rgb;
+                if (AsciiGreen(a)) { sample = a; at = ua; return true; }
+                if (AsciiGreen(b)) { sample = b; at = ub; return true; }
+                if (AsciiGreen(c)) { sample = c; at = uc; return true; }
+                if (AsciiGreen(d)) { sample = d; at = ud; return true; }
                 return false;
             }
 
@@ -193,20 +210,23 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 float2 cell = tile.cell;
                 float2 inCell = tile.inCell;
                 float2 centerUv = tile.centerUv;
-                float depth = Eye(centerUv);
                 float2 cellUv = cell / size;
 
                 half3 sample;
-                drawn = RoomCover(centerUv, cellUv, sample);
+                float2 at;
+                drawn = RoomCover(centerUv, cellUv, sample, at);
                 if (!drawn)
                     return 0;
+                float depth = Eye(at);
 
                 float form = saturate((sample.g - 0.45) / 0.55);
 
-                float left = Eye(centerUv - float2(cellUv.x, 0.0));
-                float right = Eye(centerUv + float2(cellUv.x, 0.0));
-                float down = Eye(centerUv - float2(0.0, cellUv.y));
-                float up = Eye(centerUv + float2(0.0, cellUv.y));
+                // Past the doorway's edge there's no depth at all; that's the portal's cut, not a
+                // silhouette, so it mustn't light the rim.
+                float left = NearOr(centerUv - float2(cellUv.x, 0.0), depth);
+                float right = NearOr(centerUv + float2(cellUv.x, 0.0), depth);
+                float down = NearOr(centerUv - float2(0.0, cellUv.y), depth);
+                float up = NearOr(centerUv + float2(0.0, cellUv.y), depth);
                 float curv = max(abs(left + right - 2.0 * depth), abs(down + up - 2.0 * depth));
                 float edge = saturate((curv / max(depth, 0.3) - 0.18) * 4.0);
                 // Cast shadow from the ray, plus the dark side of the mesh. Size stays on depth.
@@ -219,17 +239,10 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 pick = saturate(pick * lerp(1.0, 0.62, shade) + edge * 0.12);
                 float bright = depthBright * lerp(1.0, 0.18, shade);
 
-                float shown = 1.0;
-                if (_AsciiWave > 0.0)
-                {
-                    float reach = (1.0 - _AsciiWave) * 7.5;
-                    shown = 1.0 - smoothstep(reach - 0.6, reach + 0.2, depth);
-                }
-
                 half glyph = AsciiGlyphInk(TEXTURE2D_ARGS(_GlyphAtlas, sampler_GlyphAtlas), _GlyphCount, pick, inCell, cell);
-                half cover = saturate(glyph * lerp(0.82, 1.0, saturate(bright))) * shown;
+                half cover = saturate(glyph * lerp(0.82, 1.0, saturate(bright)));
                 half3 ink = _Ink.rgb * bright;
-                half3 paper = _Paper.rgb * presence * shown;
+                half3 paper = _Paper.rgb * presence;
                 return lerp(paper, ink, cover);
             }
 
@@ -249,6 +262,20 @@ Shader "CardboardXR/Demos/AsciiTerminal"
 #endif
 
                 half3 here = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, uv, 0).rgb;
+                float3 eye = _WorldSpaceCameraPos;
+                float3 dir = normalize(ComputeWorldSpacePosition(uv, 0.5, UNITY_MATRIX_I_VP) - eye);
+
+                // Outside the gate: how much of this pixel looks through the doorway, antialiased
+                // on the opening's true edge rather than snapped to whole glyph tiles.
+                float portal = 1.0;
+                if (_AsciiPortalClip > 0.5)
+                {
+                    float inside = AsciiDoorInside(eye, eye + dir * 100.0);
+                    portal = saturate(inside / max(fwidth(inside), 1e-5) + 0.5);
+                    if (portal <= 0.0)
+                        return half4(here, 1.0);
+                }
+
                 // The doorway back is the real room, people included.
                 if (!empty && AsciiWindow(here))
                     return half4(CameraColor(uv), 1.0);
@@ -256,23 +283,25 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 Tile tile = TileAt(pixel, size);
                 half3 color;
                 bool drawn = false;
-                // No scene depth (nothing rendered): true black inside, not the clear color.
-                if (empty)
-                {
-                    color = _AsciiVoid > 0.5 ? half3(0, 0, 0) : here;
-                }
-                else
-                {
-                    color = Room(tile, size, drawn);
-                    // Angels already drew their own glyphs; hands and UI pass straight through.
-                    if (!drawn)
-                        color = here;
-                }
+                color = Room(tile, size, drawn);
+                // No scene depth (nothing rendered) and no room in this tile: true black inside the
+                // dimension, and through the doorway from outside, not the clear color or the
+                // passthrough behind it. A room tile keeps its whole glyph even where its pixels
+                // fall between plane meshes or past the doorway's edge.
+                if (!drawn && empty)
+                    color = _AsciiVoid > 0.5 || _AsciiPortalClip > 0.5 ? half3(0, 0, 0) : here;
+                // Angels already drew their own glyphs; hands and UI pass straight through.
+                else if (!drawn)
+                    color = here;
 
                 // People in the real room become blue glyphs, so nobody gets walked into. One
                 // test per tile keeps whole letters; the narrow band keeps a tile room or person.
+                // A UI panel in front hides them: it's drawn after this pass, and its glass would
+                // otherwise let the bright figure through as if it stood on top.
                 half cover = PersonCover(tile.centerUv);
                 half person = smoothstep(0.35, 0.65, cover);
+                if (person > 0.0)
+                    person *= 1.0 - AsciiPanelCover(eye, dir);
                 if (person > 0.0)
                     color = lerp(color, Person(tile, cover), person);
                 if (_AsciiStone > 0.0)
@@ -280,7 +309,7 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                     half luma = dot(color, half3(0.299, 0.587, 0.114));
                     color = lerp(color, half3(0.62, 0.6, 0.56) * luma * 1.6, _AsciiStone);
                 }
-                return half4(color, 1.0);
+                return half4(lerp(here, color, portal), 1.0);
             }
             ENDHLSL
         }

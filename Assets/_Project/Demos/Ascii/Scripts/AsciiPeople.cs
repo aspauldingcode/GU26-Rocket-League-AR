@@ -1,4 +1,5 @@
 using CardboardXR.Stereo;
+using CardboardXR.UI;
 using Unity.InferenceEngine;
 using UnityEngine;
 
@@ -22,6 +23,20 @@ namespace CardboardXR.Demos.Ascii
         static readonly int k_MaskPrevId = Shader.PropertyToID("_AsciiPersonMaskPrev");
         static readonly int k_BlendId = Shader.PropertyToID("_AsciiPersonBlend");
         static readonly int k_OnId = Shader.PropertyToID("_AsciiPersonOn");
+        static readonly int k_PanelCenterId = Shader.PropertyToID("_AsciiPanelCenter");
+        static readonly int k_PanelRightId = Shader.PropertyToID("_AsciiPanelRight");
+        static readonly int k_PanelUpId = Shader.PropertyToID("_AsciiPanelUp");
+        static readonly int k_PanelCountId = Shader.PropertyToID("_AsciiPanelCount");
+        // ASCII_MAX_PANELS in AsciiGlyphs.hlsl.
+        const int k_MaxPanels = 8;
+        const float k_PanelSearchInterval = 0.5f;
+
+        readonly Vector4[] m_PanelCenter = new Vector4[k_MaxPanels];
+        readonly Vector4[] m_PanelRight = new Vector4[k_MaxPanels];
+        readonly Vector4[] m_PanelUp = new Vector4[k_MaxPanels];
+        readonly Vector3[] m_Corners = new Vector3[4];
+        M3Canvas[] m_Panels = new M3Canvas[0];
+        float m_LastPanelSearch = float.NegativeInfinity;
 
         PassthroughController m_Passthrough;
         Worker m_Worker;
@@ -42,7 +57,7 @@ namespace CardboardXR.Demos.Ascii
                 Setup();
         }
 
-        // Inside the gate only; outside, passthrough already shows everyone.
+        // While the gate is up: inside, and through the doorway from outside.
         public void SetActive(bool active)
         {
             m_Active = active;
@@ -123,6 +138,8 @@ namespace CardboardXR.Demos.Ascii
             var running = m_Active && m_Worker != null && image != null;
             m_Strength = Mathf.MoveTowards(m_Strength, running ? 1f : 0f, Time.unscaledDeltaTime / k_FadeSeconds);
             Shader.SetGlobalFloat(k_OnId, m_Strength);
+            if (m_Strength > 0f)
+                UploadPanels();
             if (!running)
                 return;
 
@@ -140,9 +157,45 @@ namespace CardboardXR.Demos.Ascii
             Shader.SetGlobalFloat(k_BlendId, Mathf.SmoothStep(0f, 1f, (now - m_LastRun) / k_Interval));
         }
 
+        // The terminal draws people before the transparent UI, so through glass panels they'd look
+        // like they stand on top of it. It hides them wherever a shown panel covers the view.
+        // Panels move and fade every frame; the set of them is only looked up now and then.
+        void UploadPanels()
+        {
+            var now = Time.unscaledTime;
+            if (now - m_LastPanelSearch >= k_PanelSearchInterval)
+            {
+                m_LastPanelSearch = now;
+                m_Panels = FindObjectsByType<M3Canvas>(FindObjectsSortMode.None);
+            }
+            var count = 0;
+            foreach (var panel in m_Panels)
+            {
+                if (count == k_MaxPanels)
+                    break;
+                if (panel == null || !panel.isActiveAndEnabled)
+                    continue;
+                var group = panel.GetComponent<CanvasGroup>();
+                var alpha = group != null ? group.alpha : 1f;
+                if (alpha <= 0.02f)
+                    continue;
+                ((RectTransform)panel.transform).GetWorldCorners(m_Corners);
+                var center = (m_Corners[0] + m_Corners[2]) / 2f;
+                m_PanelCenter[count] = new Vector4(center.x, center.y, center.z, alpha);
+                m_PanelRight[count] = (m_Corners[3] - m_Corners[0]) / 2f;
+                m_PanelUp[count] = (m_Corners[1] - m_Corners[0]) / 2f;
+                count++;
+            }
+            Shader.SetGlobalVectorArray(k_PanelCenterId, m_PanelCenter);
+            Shader.SetGlobalVectorArray(k_PanelRightId, m_PanelRight);
+            Shader.SetGlobalVectorArray(k_PanelUpId, m_PanelUp);
+            Shader.SetGlobalFloat(k_PanelCountId, count);
+        }
+
         void OnDestroy()
         {
             Shader.SetGlobalFloat(k_OnId, 0f);
+            Shader.SetGlobalFloat(k_PanelCountId, 0f);
             m_Worker?.Dispose();
             m_Input?.Dispose();
             foreach (var mask in m_Masks)

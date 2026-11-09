@@ -50,4 +50,66 @@ half AsciiGlyphInk(TEXTURE2D_PARAM(atlas, atlasSampler), float count, float pick
     return smoothstep(0.06, 0.55, lerp(a, b, blend));
 }
 
+// The doorway, set by AsciiWorld. Outside the gate the ASCII room is only what each eye sees
+// through the opening, like a portal: the same SLAM room, drawn the other way.
+float _AsciiPortalClip;
+// Middle of the sill (xyz).
+float4 _AsciiDoorCenter;
+// Across the opening (xyz, unit) and half its width (w).
+float4 _AsciiDoorRight;
+// Up the opening (xyz, unit) and how far it's open (w): it grows with the rising frame.
+float4 _AsciiDoorUp;
+// Through the opening into the ASCII side (xyz, unit).
+float4 _AsciiDoorNormal;
+
+// Meters inside the opening's edge (negative outside it) where the ray from the eye to `target`
+// crosses the door plane, or -1 if it doesn't pass from the front through to the far side.
+float AsciiDoorInside(float3 eye, float3 target)
+{
+    float3 n = _AsciiDoorNormal.xyz;
+    float near = dot(eye - _AsciiDoorCenter.xyz, n);
+    float far = dot(target - _AsciiDoorCenter.xyz, n);
+    if (!(near < 0.0 && far > 0.0))
+        return -1.0;
+    float3 hit = eye + (target - eye) * (near / (near - far)) - _AsciiDoorCenter.xyz;
+    float across = _AsciiDoorRight.w - abs(dot(hit, _AsciiDoorRight.xyz));
+    float up = dot(hit, _AsciiDoorUp.xyz);
+    return min(across, min(up, _AsciiDoorUp.w - up));
+}
+
+// World-space UI panels, set by AsciiPeople: center (xyz) and opacity (w), half extents across
+// and up. The terminal draws people before transparent UI, so it has to know where panels are.
+#define ASCII_MAX_PANELS 8
+float4 _AsciiPanelCenter[ASCII_MAX_PANELS];
+float4 _AsciiPanelRight[ASCII_MAX_PANELS];
+float4 _AsciiPanelUp[ASCII_MAX_PANELS];
+float _AsciiPanelCount;
+
+// The opacity of the nearest-covering panel along the ray from `eye` in direction `dir`.
+float AsciiPanelCover(float3 eye, float3 dir)
+{
+    float cover = 0.0;
+    [loop]
+    for (int i = 0; i < ASCII_MAX_PANELS; i++)
+    {
+        if (i >= (int)_AsciiPanelCount)
+            break;
+        float3 r = _AsciiPanelRight[i].xyz;
+        float3 u = _AsciiPanelUp[i].xyz;
+        float3 n = cross(r, u);
+        float facing = dot(dir, n);
+        if (abs(facing) < 1e-8)
+            continue;
+        float t = dot(_AsciiPanelCenter[i].xyz - eye, n) / facing;
+        if (t <= 0.0)
+            continue;
+        float3 h = eye + dir * t - _AsciiPanelCenter[i].xyz;
+        float x = dot(h, r) / max(dot(r, r), 1e-8);
+        float y = dot(h, u) / max(dot(u, u), 1e-8);
+        if (abs(x) <= 1.0 && abs(y) <= 1.0)
+            cover = max(cover, _AsciiPanelCenter[i].w);
+    }
+    return cover;
+}
+
 #endif

@@ -52,7 +52,8 @@ namespace CardboardXR.Demos.Ascii
             enabled = want;
         }
 
-        // Plane overlays only inside the gate. Outside, passthrough stays clear.
+        // Plane overlays for as long as the gate is up. Outside, the ASCII shader clips them to the
+        // doorway, so passthrough stays clear everywhere else.
         public void SetDrawn(bool on)
         {
             m_Draw = on && enabled;

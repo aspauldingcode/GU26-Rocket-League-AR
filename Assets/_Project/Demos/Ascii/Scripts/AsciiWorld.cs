@@ -4,17 +4,16 @@ using UnityEngine;
 
 namespace CardboardXR.Demos.Ascii
 {
-    // Glyph gate on the floor. Outside: normal passthrough, depth-mask doorway peeks at a green
-    // ASCII "other side". Inside: real AR planes remap via AsciiSurfaces, passthrough is off.
-    // Crossing uses the portal World's local space (+z through the door), same as PortalWorld.
-    // Logs [Ascii].
+    // Glyph gate on the floor, a true portal. The ASCII room (the live SLAM planes and meshes,
+    // AsciiSurfaces and AsciiMeshes) is drawn the whole time the gate is up; outside, each eye only
+    // sees it through the opening (_AsciiPortalClip with the doorway set here), so walking through
+    // just stops clipping it — nothing loads or swaps. Inside, passthrough is off and the opening
+    // shows the camera instead. Crossing uses the portal World's local space (+z through the door),
+    // same as PortalWorld. Logs [Ascii].
     public class AsciiWorld : MonoBehaviour
     {
         public const float DoorWidth = 1.0f;
         public const float DoorHeight = 2.1f;
-        const float k_BoxHalfWidth = 24f;
-        const float k_BoxHeight = 20f;
-        const float k_BoxDepth = 29f;
         const float k_RiseSeconds = 1.5f;
         const float k_SinkSeconds = 1.2f;
 
@@ -34,6 +33,11 @@ namespace CardboardXR.Demos.Ascii
         }
 
         static readonly int k_BaseColor = Shader.PropertyToID("_BaseColor");
+        static readonly int k_PortalClip = Shader.PropertyToID("_AsciiPortalClip");
+        static readonly int k_DoorCenter = Shader.PropertyToID("_AsciiDoorCenter");
+        static readonly int k_DoorRight = Shader.PropertyToID("_AsciiDoorRight");
+        static readonly int k_DoorUp = Shader.PropertyToID("_AsciiDoorUp");
+        static readonly int k_DoorNormal = Shader.PropertyToID("_AsciiDoorNormal");
 
         [SerializeField] Material m_Glow;
         [SerializeField] Material m_Mask;
@@ -41,8 +45,6 @@ namespace CardboardXR.Demos.Ascii
 
         Transform m_World;
         Transform m_Frame;
-        GameObject m_Peek;
-        GameObject m_OutsideMask;
         GameObject m_InsideMask;
         Vector3 m_LastHead;
         bool m_HasLastHead;
@@ -50,10 +52,6 @@ namespace CardboardXR.Demos.Ascii
         Material m_FrameMaterial;
         Material m_WindowMaterial;
         Coroutine m_Animating;
-        Transform m_Cover;
-        // Peek slabs stay hidden until the first rise finishes — otherwise their near faces sit on
-        // the door plane and flash a green ASCII sheet while the frame is still coming up.
-        bool m_PeekReady;
 
         public bool IsInside { get; private set; }
         public bool ReturnUnlocked { get; private set; }
@@ -66,12 +64,10 @@ namespace CardboardXR.Demos.Ascii
             m_World = new GameObject("World").transform;
             m_World.SetParent(transform, false);
             m_World.localRotation = Quaternion.Euler(0f, 180f, 0f);
-            BuildPeek();
-            if (m_Peek != null)
-                m_Peek.SetActive(false);
-            BuildMasks();
+            m_Frame.localScale = new Vector3(1f, 0.001f, 1f);
+            BuildWindow();
             SetInside(false, announce: false);
-            m_Animating = StartCoroutine(Animate(k_RiseSeconds, BackOut, () => m_PeekReady = true));
+            m_Animating = StartCoroutine(Animate(k_RiseSeconds, BackOut, null));
         }
 
         public void Close(Action closed)
@@ -129,45 +125,28 @@ namespace CardboardXR.Demos.Ascii
             Debug.Log("[Ascii] Return portal rising open");
         }
 
-        // Rises out of or sinks into the floor. Outside, a mask comes down from the lintel so the
-        // peek closes with the frame (kept after Close, like PortalWorld, until the gate is removed).
-        // Inside, the camera window shrinks with the opening instead: a mask there would leave a
-        // dark door-shaped slab once the door is gone.
+        // Rises out of or sinks into the floor. The opening grows and shrinks with it: outside, the
+        // portal view is clipped to OpenHeight; inside, the camera window is fitted to it.
         IEnumerator Animate(float seconds, Func<float, float> height, Action done)
         {
-            DestroyCover();
-            if (!IsInside)
-                m_Cover = Quad("Door Cover", m_World, Vector3.zero, Vector2.one, Quaternion.identity, m_Mask);
             for (var t = 0f; ; t += Time.deltaTime)
             {
                 var progress = Mathf.Clamp01(t / seconds);
-                var h = height(progress);
-                m_Frame.localScale = new Vector3(1f, Mathf.Max(0.001f, h), 1f);
-                var open = Mathf.Clamp01(h) * DoorHeight;
-                var covered = DoorHeight - open;
-                if (m_Cover != null)
-                {
-                    m_Cover.localPosition = new Vector3(0f, open + covered / 2f, 0f);
-                    m_Cover.localScale = new Vector3(DoorWidth, Mathf.Max(0.001f, covered), 1f);
-                }
+                m_Frame.localScale = new Vector3(1f, Mathf.Max(0.001f, height(progress)), 1f);
                 if (IsInside)
-                    FitWindow(open);
+                    FitWindow(OpenHeight);
                 if (progress >= 1f)
                     break;
                 yield return null;
             }
-            if (height(1f) >= 1f)
-                DestroyCover();
             m_Animating = null;
             done?.Invoke();
         }
 
-        void DestroyCover()
-        {
-            if (m_Cover != null)
-                Destroy(m_Cover.gameObject);
-            m_Cover = null;
-        }
+        // How far up the opening is open, in meters: the frame's rise, without its overshoot.
+        float OpenHeight => m_Frame != null && m_Frame.gameObject.activeInHierarchy
+            ? Mathf.Clamp01(m_Frame.localScale.y) * DoorHeight
+            : 0f;
 
         // The doorway's camera window, open from the sill up to height.
         void FitWindow(float height)
@@ -204,37 +183,42 @@ namespace CardboardXR.Demos.Ascii
             }
             m_LastHead = head;
             m_HasLastHead = true;
-            // The peek is a room-sized box behind the door. Walked around to the back, the player
-            // stands inside it and its far walls fade to a black wall, so it only draws from the front.
-            if (m_Peek != null)
-                m_Peek.SetActive(m_PeekReady && !IsInside && head.z < 0f);
+        }
+
+        // After everything that moves the head or the frame this frame, so the portal the eyes
+        // render is the door as it stands now.
+        void LateUpdate()
+        {
+            if (m_World == null)
+                return;
+            Shader.SetGlobalFloat(k_PortalClip, IsInside ? 0f : 1f);
+            var right = m_World.right;
+            var up = m_World.up;
+            Shader.SetGlobalVector(k_DoorCenter, m_World.position);
+            Shader.SetGlobalVector(k_DoorRight, new Vector4(right.x, right.y, right.z, DoorWidth / 2f));
+            Shader.SetGlobalVector(k_DoorUp, new Vector4(up.x, up.y, up.z, OpenHeight));
+            Shader.SetGlobalVector(k_DoorNormal, m_World.forward);
         }
 
         void SetInside(bool inside, bool announce)
         {
             IsInside = inside;
-            // A crossing can interrupt the first rise before it marks the peek ready.
-            if (announce)
-                m_PeekReady = true;
-            if (m_Peek != null)
-                m_Peek.SetActive(m_PeekReady && !inside);
-            m_OutsideMask.SetActive(!inside);
+            // The portal flips in the same frame as the crossing, before the eyes render.
+            Shader.SetGlobalFloat(k_PortalClip, inside ? 0f : 1f);
             // Keep the frame up on enter so SealDoor can sink it; hide only after it seals or when
             // already locked and not unlocking. UnlockReturnPortal rises it again in place.
             if (!inside)
             {
                 m_Frame.gameObject.SetActive(true);
-                if (m_Frame.localScale.y < 0.5f)
+                if (announce && m_Frame.localScale.y < 0.5f)
                     m_Frame.localScale = Vector3.one;
                 m_InsideMask.SetActive(false);
             }
             else
             {
                 // Live camera through the doorway until SealDoor finishes (or until unlock for escape).
-                // An outside rise cut short leaves its mask behind; inside it would be a dark slab.
-                DestroyCover();
                 m_Frame.gameObject.SetActive(true);
-                FitWindow(Mathf.Clamp01(m_Frame.localScale.y) * DoorHeight);
+                FitWindow(OpenHeight);
                 m_InsideMask.SetActive(true);
             }
             if (!announce)
@@ -310,6 +294,9 @@ namespace CardboardXR.Demos.Ascii
 
         void OnDestroy()
         {
+            // No gate, no doorway: nothing of the ASCII room shows until the next one rises.
+            Shader.SetGlobalFloat(k_PortalClip, 1f);
+            Shader.SetGlobalVector(k_DoorUp, Vector4.zero);
             if (m_FrameMaterial != null)
                 Destroy(m_FrameMaterial);
             if (m_WindowMaterial != null)
@@ -319,37 +306,8 @@ namespace CardboardXR.Demos.Ascii
         void Casing(string name, Material material, Vector3 position, Vector3 size, Color color) =>
             Primitive(PrimitiveType.Cube, name, m_Frame, position, size, Quaternion.identity, material != null ? material : m_Glow, color);
 
-        // Green ASCII slabs parented under the depth-masked World so the doorway peeks at phosphor
-        // green — not the real room, and not camera-tinted glyphs. Hidden once you're inside.
-        // The ASCII shader treats local +Y as the surface normal, so each slab is rotated to face in.
-        // Kept clear of z=0 so cube end-caps don't sit in the door plane as a green perpendicular sheet.
-        void BuildPeek()
+        void BuildWindow()
         {
-            m_Peek = new GameObject("Peek");
-            m_Peek.transform.SetParent(m_World, false);
-            var peek = m_Peek.transform;
-            const float half = 12f;
-            const float wallH = 4f;
-            const float near = 0.2f;
-            const float depth = 14f;
-            var span = depth - near;
-            var mid = near + span / 2f;
-            // Thin in local Y; rotate so +Y is the inward-facing normal, then stretch in local XZ.
-            Slab("Floor", peek, new Vector3(0f, 0.002f, mid), new Vector3(half * 2f, 0.01f, span),
-                Quaternion.identity);
-            Slab("Ceiling", peek, new Vector3(0f, wallH, mid), new Vector3(half * 2f, 0.01f, span),
-                Quaternion.Euler(180f, 0f, 0f));
-            Slab("Left Wall", peek, new Vector3(-half, wallH / 2f, mid), new Vector3(wallH, 0.01f, span),
-                Quaternion.Euler(0f, 0f, -90f));
-            Slab("Right Wall", peek, new Vector3(half, wallH / 2f, mid), new Vector3(wallH, 0.01f, span),
-                Quaternion.Euler(0f, 0f, 90f));
-            Slab("Back Wall", peek, new Vector3(0f, wallH / 2f, depth), new Vector3(half * 2f, 0.01f, wallH),
-                Quaternion.Euler(90f, 0f, 0f));
-        }
-
-        void BuildMasks()
-        {
-            m_OutsideMask = BuildOutsideMask();
             m_InsideMask = Quad("Inside Mask", m_World, new Vector3(0f, DoorHeight / 2f, 0f),
                 new Vector2(DoorWidth, DoorHeight), Quaternion.identity, WindowMaterial()).gameObject;
         }
@@ -365,37 +323,6 @@ namespace CardboardXR.Demos.Ascii
             m_WindowMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry - 10;
             return m_WindowMaterial;
         }
-
-        GameObject BuildOutsideMask()
-        {
-            var mask = new GameObject("Outside Mask").transform;
-            mask.SetParent(m_World, false);
-            const float bottom = -0.5f;
-            var middleY = bottom + k_BoxHeight / 2f;
-            var halfDoor = DoorWidth / 2f;
-            Quad("Far", mask, new Vector3(0f, middleY, k_BoxDepth), new Vector2(2f * k_BoxHalfWidth, k_BoxHeight), Quaternion.identity, m_Mask);
-            Quad("Left", mask, new Vector3(-k_BoxHalfWidth, middleY, k_BoxDepth / 2f), new Vector2(k_BoxDepth, k_BoxHeight),
-                Quaternion.Euler(0f, 90f, 0f), m_Mask);
-            Quad("Right", mask, new Vector3(k_BoxHalfWidth, middleY, k_BoxDepth / 2f), new Vector2(k_BoxDepth, k_BoxHeight),
-                Quaternion.Euler(0f, 90f, 0f), m_Mask);
-            Quad("Top", mask, new Vector3(0f, bottom + k_BoxHeight, k_BoxDepth / 2f), new Vector2(2f * k_BoxHalfWidth, k_BoxDepth),
-                Quaternion.Euler(90f, 0f, 0f), m_Mask);
-            Quad("Bottom", mask, new Vector3(0f, bottom, k_BoxDepth / 2f), new Vector2(2f * k_BoxHalfWidth, k_BoxDepth),
-                Quaternion.Euler(90f, 0f, 0f), m_Mask);
-            var sideWidth = k_BoxHalfWidth - halfDoor;
-            Quad("Front Left", mask, new Vector3(-halfDoor - sideWidth / 2f, middleY, 0f), new Vector2(sideWidth, k_BoxHeight),
-                Quaternion.identity, m_Mask);
-            Quad("Front Right", mask, new Vector3(halfDoor + sideWidth / 2f, middleY, 0f), new Vector2(sideWidth, k_BoxHeight),
-                Quaternion.identity, m_Mask);
-            var aboveHeight = bottom + k_BoxHeight - DoorHeight;
-            Quad("Above Door", mask, new Vector3(0f, DoorHeight + aboveHeight / 2f, 0f), new Vector2(DoorWidth, aboveHeight),
-                Quaternion.identity, m_Mask);
-            Quad("Below Door", mask, new Vector3(0f, bottom / 2f, 0f), new Vector2(DoorWidth, -bottom), Quaternion.identity, m_Mask);
-            return mask.gameObject;
-        }
-
-        Transform Slab(string name, Transform parent, Vector3 position, Vector3 size, Quaternion rotation) =>
-            Primitive(PrimitiveType.Cube, name, parent, position, size, rotation, m_Ascii != null ? m_Ascii : m_Glow, null);
 
         Transform Quad(string name, Transform parent, Vector3 position, Vector2 size, Quaternion rotation, Material material) =>
             Primitive(PrimitiveType.Quad, name, parent, position, new Vector3(size.x, size.y, 1f), rotation, material, null);

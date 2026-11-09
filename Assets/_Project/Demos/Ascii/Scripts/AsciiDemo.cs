@@ -8,9 +8,10 @@ using UnityEngine.XR.ARSubsystems;
 
 namespace CardboardXR.Demos.Ascii
 {
-    // Place a glyph gate on the floor. Outside: normal passthrough, and the doorway peeks at a
-    // terminal rendering of the other side. Inside: passthrough off, the room is that same
-    // screen-space terminal. Character size, density and brightness show distance. The room is
+    // Place a glyph gate on the floor. From the moment it rises, the room is mapped and drawn as a
+    // terminal (live SLAM planes and meshes). Outside, passthrough is on and that terminal room only
+    // shows through the doorway, a true portal; walking through just stops clipping it, so there's
+    // no fade or load. Inside: passthrough off, the room is that same screen-space terminal. Character size, density and brightness show distance. The room is
     // green; weeping angels are gray stone with a soft edge. The camera keeps running, so the
     // open doorway shows the real room and people in it are drawn as light-blue glyphs. The gate
     // closes behind the player and the math game (AsciiMathQuiz) starts; it reopens once the five
@@ -24,15 +25,10 @@ namespace CardboardXR.Demos.Ascii
         const float k_AngelNearest = 1.6f;
         const float k_AngelFarthest = 4.5f;
         const float k_AngelFromWall = 0.55f;
-        const float k_DipAlpha = 0.75f;
-        const float k_DipSeconds = 0.12f;
-        const float k_RiseSeconds = 0.45f;
-        const float k_WaveSeconds = 1.1f;
 
         static readonly int k_CameraImageId = Shader.PropertyToID("_AsciiCameraImage");
         static readonly int k_CameraFrustumId = Shader.PropertyToID("_AsciiCameraFrustum");
         static readonly int k_CameraOnId = Shader.PropertyToID("_AsciiCameraOn");
-        static readonly int k_WaveId = Shader.PropertyToID("_AsciiWave");
         static readonly int k_VoidId = Shader.PropertyToID("_AsciiVoid");
 
         [SerializeField] GameObject m_PortalPrefab;
@@ -47,8 +43,6 @@ namespace CardboardXR.Demos.Ascii
         AsciiMathQuiz m_Quiz;
         AsciiWhiteboard m_Notes;
         AsciiPeople m_People;
-        ScreenFade m_Fade;
-        Coroutine m_Crossing;
         bool m_Capturing;
         RectTransform m_Panel;
         TMP_Text m_Hint;
@@ -83,7 +77,7 @@ namespace CardboardXR.Demos.Ascii
 
             m_Meshes = gameObject.AddComponent<AsciiMeshes>();
             m_Meshes.Configure(m_AsciiMaterial, core.Boundary != null ? core.Boundary.transform : null);
-            // Meshing stays warm but overlays only draw while inside.
+            // Meshing stays warm; chunks draw once a gate is up.
             m_Meshes.SetActive(false);
 
             m_Angels = gameObject.AddComponent<AsciiAngels>();
@@ -98,9 +92,8 @@ namespace CardboardXR.Demos.Ascii
 
             m_People = gameObject.AddComponent<AsciiPeople>();
             m_People.Configure(core.Passthrough);
-            // Warm the segmenter before the first crossing so Setup doesn't hitch the door fade.
+            // Warm the segmenter before the gate goes up so Setup doesn't hitch the rise.
             m_People.Warm();
-            m_Fade = Object.FindAnyObjectByType<ScreenFade>(FindObjectsInactive.Include);
 
             m_Audio = gameObject.AddComponent<AudioSource>();
             m_Audio.playOnAwake = false;
@@ -128,8 +121,8 @@ namespace CardboardXR.Demos.Ascii
                 Destroy(m_Notes);
                 m_Notes = null;
             }
-            StopCrossing();
             SetInsideWorld(false);
+            SetRoomLive(false);
             SetCapture(false);
             if (m_People != null)
             {
@@ -188,81 +181,34 @@ namespace CardboardXR.Demos.Ascii
             m_Core.Boundary.ShowMarks = false;
             AsciiTerminal.Active = true;
             SetCapture(true);
-            m_Surfaces?.SetLive(true);
+            SetRoomLive(true);
             var distance = Vector3.Distance(m_Core.Head.position, placed.transform.position);
             Debug.Log($"[Ascii] Gate opened {distance:F1} m away");
             m_Audio.PlayOneShot(m_Whoosh, 0.4f);
             UpdateHint();
         }
 
+        // The room through the doorway is the room you step into, already drawn, so crossing is
+        // only the switch from passthrough to terminal in the same frame: no fade, no wave.
         void OnCrossed(bool inside)
         {
             m_Audio.PlayOneShot(m_Whoosh, 0.7f);
-            StopCrossing();
-            m_Crossing = StartCoroutine(Cross(inside));
+            ApplyCrossing(inside);
         }
 
-        // Enter: seal the door immediately with the live camera still in the opening (like looking
-        // back through PortalWorld's doorway), then lift a light veil while glyphs spread. Exit: dip,
-        // restore the room, lift. Quiz Begin runs only after SealDoor finishes.
-        System.Collections.IEnumerator Cross(bool inside)
+        // The SLAM room (planes, furniture, meshes) and people in it, mapped and drawn for as long
+        // as the gate is up; outside, the terminal only shows them through the doorway.
+        void SetRoomLive(bool on)
         {
-            if (inside)
-            {
-                // Don't black out first — that made the doorway feed look like it cut instantly.
-                Shader.SetGlobalFloat(k_WaveId, 1f);
-                ApplyCrossing(true);
-                var dark = 0f;
-                if (m_Fade != null)
-                {
-                    yield return m_Fade.FadeTo(0.35f, k_DipSeconds);
-                    dark = m_Fade.Alpha;
-                }
-                var seconds = Mathf.Max(k_RiseSeconds, k_WaveSeconds);
-                for (var t = 0f; t < seconds; t += Time.unscaledDeltaTime)
-                {
-                    if (m_Fade != null)
-                        m_Fade.Alpha = Mathf.Lerp(dark, 0f, Mathf.SmoothStep(0f, 1f, t / k_RiseSeconds));
-                    Shader.SetGlobalFloat(k_WaveId, 1f - Mathf.SmoothStep(0f, 1f, t / k_WaveSeconds));
-                    yield return null;
-                }
-            }
-            else
-            {
-                if (m_Fade != null)
-                    yield return m_Fade.FadeTo(k_DipAlpha, k_DipSeconds);
-                Shader.SetGlobalFloat(k_WaveId, 0f);
-                ApplyCrossing(false);
-                var dark = m_Fade != null ? m_Fade.Alpha : 0f;
-                for (var t = 0f; t < k_RiseSeconds; t += Time.unscaledDeltaTime)
-                {
-                    if (m_Fade != null)
-                        m_Fade.Alpha = Mathf.Lerp(dark, 0f, Mathf.SmoothStep(0f, 1f, t / k_RiseSeconds));
-                    yield return null;
-                }
-            }
-            if (m_Fade != null)
-                m_Fade.Alpha = 0f;
-            Shader.SetGlobalFloat(k_WaveId, 0f);
-            m_Crossing = null;
-        }
-
-        void StopCrossing()
-        {
-            if (m_Crossing != null)
-                StopCoroutine(m_Crossing);
-            m_Crossing = null;
-            Shader.SetGlobalFloat(k_WaveId, 0f);
-            if (m_Fade != null && m_Fade.Alpha > 0f && m_Fade.Alpha <= k_DipAlpha)
-                m_Fade.Alpha = 0f;
+            m_Surfaces?.SetLive(on);
+            m_Surfaces?.SetDrawn(on);
+            m_Meshes?.SetActive(on);
+            m_People?.SetActive(on);
         }
 
         void ApplyCrossing(bool inside)
         {
             SetInsideWorld(inside);
-            // Planes remap over a few frames so the door fade isn't blocked for a long hitch.
-            m_Surfaces?.SetDrawn(inside);
-            m_Meshes?.SetActive(inside);
             m_Angels?.SetInside(inside);
             m_MoveButton.Interactable = !inside;
             if (inside)
@@ -346,7 +292,6 @@ namespace CardboardXR.Demos.Ascii
                 return;
             m_InsideWorld = inside;
             Shader.SetGlobalFloat(k_VoidId, inside ? 1f : 0f);
-            m_People?.SetActive(inside);
             if (inside)
             {
                 m_HadPassthrough = m_Core.Passthrough.IsOn;
@@ -402,11 +347,9 @@ namespace CardboardXR.Demos.Ascii
             m_Portal = null;
             AsciiTerminal.Active = false;
             m_Core.Boundary.ShowMarks = true;
-            StopCrossing();
             SetInsideWorld(false);
+            SetRoomLive(false);
             SetCapture(false);
-            m_Surfaces?.SetLive(false);
-            m_Meshes?.SetActive(false);
             m_Quiz?.Stop();
             m_Angels?.SetInside(false);
             m_Audio.PlayOneShot(m_Whoosh, 0.3f);
@@ -434,7 +377,7 @@ namespace CardboardXR.Demos.Ascii
             else if (m_Quiz != null && m_Quiz.State == AsciiQuizState.Escape)
                 m_Hint.text = "Portal is open — walk back through the doorway to win.";
             else if (!m_Portal.IsInside)
-                m_Hint.text = "Passthrough room outside. Green ASCII through the gate.\nWalk through to play. Unplug first if it's on a cable.";
+                m_Hint.text = "Your room, mapped in ASCII, lies through the gate.\nWalk through to play. Unplug first if it's on a cable.";
             else
                 m_Hint.text = "Door sealed. Answer in front. Be quick! Look behind you.";
         }
