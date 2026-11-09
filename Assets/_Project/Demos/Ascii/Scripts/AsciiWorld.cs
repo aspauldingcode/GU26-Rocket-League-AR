@@ -50,6 +50,7 @@ namespace CardboardXR.Demos.Ascii
         Material m_FrameMaterial;
         Material m_WindowMaterial;
         Coroutine m_Animating;
+        Transform m_Cover;
         // Peek slabs stay hidden until the first rise finishes — otherwise their near faces sit on
         // the door plane and flash a green ASCII sheet while the frame is still coming up.
         bool m_PeekReady;
@@ -119,6 +120,7 @@ namespace CardboardXR.Demos.Ascii
                 return;
             m_Frame.gameObject.SetActive(true);
             m_Frame.localScale = new Vector3(1f, 0.001f, 1f);
+            FitWindow(0f);
             if (m_InsideMask != null)
                 m_InsideMask.SetActive(true);
             if (m_Animating != null)
@@ -127,9 +129,15 @@ namespace CardboardXR.Demos.Ascii
             Debug.Log("[Ascii] Return portal rising open");
         }
 
+        // Rises out of or sinks into the floor. Outside, a mask comes down from the lintel so the
+        // peek closes with the frame (kept after Close, like PortalWorld, until the gate is removed).
+        // Inside, the camera window shrinks with the opening instead: a mask there would leave a
+        // dark door-shaped slab once the door is gone.
         IEnumerator Animate(float seconds, Func<float, float> height, Action done)
         {
-            var cover = Quad("Door Cover", m_World, Vector3.zero, Vector2.one, Quaternion.identity, m_Mask);
+            DestroyCover();
+            if (!IsInside)
+                m_Cover = Quad("Door Cover", m_World, Vector3.zero, Vector2.one, Quaternion.identity, m_Mask);
             for (var t = 0f; ; t += Time.deltaTime)
             {
                 var progress = Mathf.Clamp01(t / seconds);
@@ -137,16 +145,38 @@ namespace CardboardXR.Demos.Ascii
                 m_Frame.localScale = new Vector3(1f, Mathf.Max(0.001f, h), 1f);
                 var open = Mathf.Clamp01(h) * DoorHeight;
                 var covered = DoorHeight - open;
-                cover.localPosition = new Vector3(0f, open + covered / 2f, 0f);
-                cover.localScale = new Vector3(DoorWidth, Mathf.Max(0.001f, covered), 1f);
+                if (m_Cover != null)
+                {
+                    m_Cover.localPosition = new Vector3(0f, open + covered / 2f, 0f);
+                    m_Cover.localScale = new Vector3(DoorWidth, Mathf.Max(0.001f, covered), 1f);
+                }
+                if (IsInside)
+                    FitWindow(open);
                 if (progress >= 1f)
                     break;
                 yield return null;
             }
             if (height(1f) >= 1f)
-                Destroy(cover.gameObject);
+                DestroyCover();
             m_Animating = null;
             done?.Invoke();
+        }
+
+        void DestroyCover()
+        {
+            if (m_Cover != null)
+                Destroy(m_Cover.gameObject);
+            m_Cover = null;
+        }
+
+        // The doorway's camera window, open from the sill up to height.
+        void FitWindow(float height)
+        {
+            if (m_InsideMask == null)
+                return;
+            var window = m_InsideMask.transform;
+            window.localPosition = new Vector3(0f, height / 2f, 0f);
+            window.localScale = new Vector3(DoorWidth, Mathf.Max(0.001f, height), 1f);
         }
 
         static float BackOut(float t)
@@ -183,6 +213,9 @@ namespace CardboardXR.Demos.Ascii
         void SetInside(bool inside, bool announce)
         {
             IsInside = inside;
+            // A crossing can interrupt the first rise before it marks the peek ready.
+            if (announce)
+                m_PeekReady = true;
             if (m_Peek != null)
                 m_Peek.SetActive(m_PeekReady && !inside);
             m_OutsideMask.SetActive(!inside);
@@ -198,7 +231,10 @@ namespace CardboardXR.Demos.Ascii
             else
             {
                 // Live camera through the doorway until SealDoor finishes (or until unlock for escape).
+                // An outside rise cut short leaves its mask behind; inside it would be a dark slab.
+                DestroyCover();
                 m_Frame.gameObject.SetActive(true);
+                FitWindow(Mathf.Clamp01(m_Frame.localScale.y) * DoorHeight);
                 m_InsideMask.SetActive(true);
             }
             if (!announce)

@@ -109,6 +109,10 @@ namespace CardboardXR.Demos.Ascii
                 };
                 Graphics.Blit(Texture2D.blackTexture, m_Masks[i]);
             }
+            // The first run compiles the GPU kernels; do it now, not on the first frame inside.
+            TextureConverter.ToTensor(Texture2D.blackTexture, m_Input);
+            m_Worker.Schedule(m_Input);
+            TextureConverter.RenderToTexture(m_Worker.PeekOutput() as Tensor<float>, m_Masks[m_Current]);
             Debug.Log($"[Ascii] Person segmenter {width}x{height} ({(nhwc ? "NHWC" : "NCHW")}, " +
                       $"{(single ? "one person channel" : "class scores")}) on {backend}");
         }

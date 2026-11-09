@@ -21,6 +21,7 @@ namespace CardboardXR.Demos.Ascii
         static readonly int k_Normal = Shader.PropertyToID("_UseMeshNormal");
         static readonly int k_Volume = Shader.PropertyToID("_Volume");
         static readonly int k_Figure = Shader.PropertyToID("_Figure");
+        static readonly int k_FloorY = Shader.PropertyToID("_AsciiFloorY");
 
         GameObject m_Prefab;
         Transform m_Head;
@@ -162,13 +163,12 @@ namespace CardboardXR.Demos.Ascii
             return Vector3.ProjectOnPlane(position - m_Head.position, Vector3.up).magnitude;
         }
 
-        // 0 far away, 1 at striking distance: for threat UI / shader pulse.
-        public float Threat()
+        // The scanned floor (AsciiSurfaces), else a standing eye height below the head, so a seated
+        // or crouched player doesn't sink the statue into the floor.
+        public static float GroundY(float headY)
         {
-            var distance = NearestDistance();
-            if (float.IsInfinity(distance))
-                return 0f;
-            return 1f - Mathf.Clamp01((distance - k_AngelReach) / 4f);
+            var floor = Shader.GetGlobalFloat(k_FloorY);
+            return floor > -900f && floor < headY - 0.3f ? floor : headY - 1.55f;
         }
 
         public void Despawn() => Clear();
@@ -200,7 +200,7 @@ namespace CardboardXR.Demos.Ascii
                 var along = Vector3.ProjectOnPlane(spawnPosition - m_Head.position, Vector3.up);
                 var distance = Mathf.Max(k_AngelReach + 0.5f, along.magnitude - nearer);
                 var pos = m_Head.position + facing * distance + right * lateral;
-                pos.y = m_Head.position.y - 1.55f;
+                pos.y = GroundY(m_Head.position.y);
                 // Percentage of this angel's own start gap per second — not a shared constant speed.
                 var speed = Mathf.Max(0.02f, (distance - k_AngelReach) / k_ReachSeconds);
                 SpawnOne(pos, speed, distance);

@@ -5,7 +5,8 @@ using UnityEngine;
 namespace CardboardXR.Stereo
 {
     // Tiny invisible WebView that loads the GitHub Pages host page (webrtc.js) in a
-    // real browser engine. Unity only pushes JPEG frames into it; the page relays them to the website.
+    // real browser engine. Unity pushes source JPEG frames into it; the page encodes them to
+    // H.264 with WebCodecs (falling back to JPEG) and relays them to the website.
     public class WebRtcCastWebView : MonoBehaviour
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -35,8 +36,11 @@ namespace CardboardXR.Stereo
         {
             if (string.IsNullOrEmpty(dataUrl))
                 return;
-            var escaped = dataUrl.Replace("\\", "\\\\").Replace("'", "\\'");
-            Eval($"window.__cast&&window.__cast.pushFrame('{escaped}');");
+            // Base64 data URLs never need escaping; skip copying a 200 KB string twice a frame.
+            var escaped = dataUrl.IndexOf('\\') < 0 && dataUrl.IndexOf('\'') < 0
+                ? dataUrl
+                : dataUrl.Replace("\\", "\\\\").Replace("'", "\\'");
+            Eval("window.__cast&&window.__cast.pushFrame('" + escaped + "');");
         }
 
         public void Close()

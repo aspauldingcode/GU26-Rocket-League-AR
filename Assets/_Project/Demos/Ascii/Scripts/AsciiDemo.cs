@@ -18,10 +18,11 @@ namespace CardboardXR.Demos.Ascii
     // write red notes (AsciiWhiteboard). Logs [Ascii].
     public class AsciiDemo : Demo, IPinchHandler
     {
-        // Where the angel can stand ahead of the player: before the first wall that way, but never
-        // nearer or farther than these.
-        const float k_AngelNearest = 3.2f;
-        const float k_AngelFarthest = 9f;
+        // Where the angel can stand behind the player: before the first wall that way, within these.
+        // Glyphs fade out by 6.5 m (AsciiDepthBrightness), so farther angels would be invisible.
+        // A wall nearer than k_AngelNearest still wins, or the statue would stand inside it.
+        const float k_AngelNearest = 1.6f;
+        const float k_AngelFarthest = 4.5f;
         const float k_AngelFromWall = 0.55f;
         const float k_DipAlpha = 0.75f;
         const float k_DipSeconds = 0.12f;
@@ -282,11 +283,12 @@ namespace CardboardXR.Demos.Ascii
             UpdateHint();
         }
 
-        // Ahead of the player, short of the first wall that way.
+        // Along facing (the quiz passes the way behind the player), short of the first wall that way.
         Vector3 AngelSpawn(Vector3 facing)
         {
             var head = m_Core.Head.position;
             var distance = k_AngelFarthest;
+            var wallLimit = float.PositiveInfinity;
             if (m_Planes != null)
             {
                 foreach (var plane in m_Planes.trackables)
@@ -300,12 +302,13 @@ namespace CardboardXR.Demos.Ascii
                         continue;
                     var wall = Vector3.Dot(plane.transform.position - head, normal) / along;
                     if (wall > 0.5f)
-                        distance = Mathf.Min(distance, wall - k_AngelFromWall);
+                        wallLimit = Mathf.Min(wallLimit, wall - k_AngelFromWall);
                 }
             }
             distance = Mathf.Clamp(distance, k_AngelNearest, k_AngelFarthest);
+            distance = Mathf.Max(AsciiAngels.k_AngelReach + 0.6f, Mathf.Min(distance, wallLimit));
             var spawn = head + facing * distance;
-            spawn.y = head.y - 1.55f;
+            spawn.y = AsciiAngels.GroundY(head.y);
             return spawn;
         }
 

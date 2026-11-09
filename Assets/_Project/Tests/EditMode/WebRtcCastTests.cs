@@ -178,50 +178,47 @@ namespace CardboardXR.Stereo.Tests
         [Test]
         public void CastFrameFollowsTheWebsitesAspect()
         {
-            Assert.That(WebRtcCastHost.FrameSizeFor(16f / 9f), Is.EqualTo(new Vector2Int(640, 360)));
-            Assert.That(WebRtcCastHost.FrameSizeFor(1.6f), Is.EqualTo(new Vector2Int(576, 360)));
+            Assert.That(WebRtcCastHost.FrameSizeFor(16f / 9f), Is.EqualTo(new Vector2Int(1280, 720)));
+            Assert.That(WebRtcCastHost.FrameSizeFor(1.6f), Is.EqualTo(new Vector2Int(1152, 720)));
 
             var host = new GameObject("Cast Host").AddComponent<WebRtcCastHost>();
             host.StartCast("aspect01", 1.6f);
-            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(576, 360)));
+            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(1152, 720)));
             host.RestartCast("aspect02");
-            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(576, 360)));
+            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(1152, 720)));
             host.StopCast();
             host.StartCast("aspect03");
-            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(640, 360)));
+            Assert.That(host.FrameSize, Is.EqualTo(new Vector2Int(1280, 720)));
             host.StopCast();
             Object.DestroyImmediate(host.gameObject);
         }
 
         [Test]
-        public void StreamProfilesGetLighterAsTheyStepDown()
+        public void SourceLevelsGetSmallerAndStayMacroblockAligned()
         {
-            for (var level = 1; level < WebRtcCastHost.k_ProfileCount; level++)
+            for (var level = 1; level < WebRtcCastHost.k_SourceLevelCount; level++)
+                Assert.That(WebRtcCastHost.SourceHeight(level), Is.LessThan(WebRtcCastHost.SourceHeight(level - 1)));
+            for (var level = 0; level < WebRtcCastHost.k_SourceLevelCount; level++)
             {
-                Assert.That(WebRtcCastHost.ProfileHeight(level), Is.LessThan(WebRtcCastHost.ProfileHeight(level - 1)));
-                Assert.That(WebRtcCastHost.ProfileQuality(level), Is.LessThan(WebRtcCastHost.ProfileQuality(level - 1)));
-                Assert.That(WebRtcCastHost.ProfileInterval(level), Is.GreaterThan(WebRtcCastHost.ProfileInterval(level - 1)),
-                    "lighter profiles also send less often");
+                var size = WebRtcCastHost.FrameSizeFor(1.6f, level);
+                Assert.That(size.x % 16, Is.Zero);
+                Assert.That(size.y % 16, Is.Zero);
             }
-            Assert.That(WebRtcCastHost.FrameSizeFor(16f / 9f, 0), Is.EqualTo(new Vector2Int(960, 540)));
-            Assert.That(WebRtcCastHost.FrameSizeFor(16f / 9f, WebRtcCastHost.k_ProfileCount - 1),
-                Is.EqualTo(new Vector2Int(384, 216)));
+            Assert.That(WebRtcCastHost.FrameSizeFor(16f / 9f, WebRtcCastHost.k_SourceLevelCount - 1),
+                Is.EqualTo(new Vector2Int(768, 432)));
         }
 
         [Test]
-        public void HeavyFramesStepDownAndLightStreaksStepBackUp()
+        public void SlowPhoneFramesStepTheSourceDownAndHealthyOnesBackUp()
         {
-            Assert.That(WebRtcCastHost.NextProfileLevel(2, 50_000, 0), Is.EqualTo(3),
-                "a heavy frame steps down at once");
-            Assert.That(WebRtcCastHost.NextProfileLevel(WebRtcCastHost.k_ProfileCount - 1, 50_000, 0),
-                Is.EqualTo(WebRtcCastHost.k_ProfileCount - 1), "already at the lightest profile");
-            Assert.That(WebRtcCastHost.NextProfileLevel(2, 30_000, 0), Is.EqualTo(2),
-                "a mid-size frame holds the profile");
-            Assert.That(WebRtcCastHost.NextProfileLevel(2, 10_000, 59), Is.EqualTo(2),
-                "light frames must be sustained before stepping up");
-            Assert.That(WebRtcCastHost.NextProfileLevel(2, 10_000, 60), Is.EqualTo(1));
-            Assert.That(WebRtcCastHost.NextProfileLevel(0, 10_000, 100), Is.EqualTo(0),
-                "already at the best profile");
+            Assert.That(WebRtcCastHost.NextSourceLevel(0, 29, 0), Is.EqualTo(0), "a short hitch holds the source");
+            Assert.That(WebRtcCastHost.NextSourceLevel(0, 30, 0), Is.EqualTo(1));
+            Assert.That(WebRtcCastHost.NextSourceLevel(WebRtcCastHost.k_SourceLevelCount - 1, 100, 0),
+                Is.EqualTo(WebRtcCastHost.k_SourceLevelCount - 1), "already the smallest source");
+            Assert.That(WebRtcCastHost.NextSourceLevel(2, 0, 149), Is.EqualTo(2),
+                "healthy frames must be sustained before stepping up");
+            Assert.That(WebRtcCastHost.NextSourceLevel(2, 0, 150), Is.EqualTo(1));
+            Assert.That(WebRtcCastHost.NextSourceLevel(0, 0, 500), Is.EqualTo(0), "already the full source");
         }
 
         [Test]

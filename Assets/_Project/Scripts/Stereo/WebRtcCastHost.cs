@@ -1,5 +1,9 @@
+using System;
 using System.Collections;
+using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
+using Object = UnityEngine.Object;
 
 namespace CardboardXR.Stereo
 {
@@ -8,20 +12,19 @@ namespace CardboardXR.Stereo
     // display — stereo (or whatever the user had) stays on-device; only GH Pages gets mono.
     public class WebRtcCastHost : MonoBehaviour
     {
-        // The starting frame, 16:9, for a page whose QR carried no aspect. The stream adapts
-        // around this size (ProfileHeight): a public relay cannot carry desktop-class frames,
-        // so stability wins over pixels when the encoded frames get heavy.
-        public const int CaptureWidth = 640;
-        public const int CaptureHeight = 360;
+        // The source frame, 16:9, for a page whose QR carried no aspect. Unity hands the host page
+        // a near-lossless JPEG at this size; the page encodes it to H.264 (or a lighter JPEG) and
+        // owns the network-side adaptation. Unity only steps the source down when the phone's own
+        // frame rate suffers.
+        public const int CaptureWidth = 1280;
+        public const int CaptureHeight = 720;
         public const float CaptureAspect = CaptureWidth / (float)CaptureHeight;
 
-        // Adaptive stream profiles, best to lightest. Level 2 is the start: small enough for
-        // a public MQTT broker, large enough to read on the website's full-screen display.
-        public const int k_ProfileCount = 5;
-        public const int k_StartProfile = 2;
-        const int k_HeavyFrameBytes = 44_000;
-        const int k_LightFrameBytes = 16_000;
-        const int k_LightFramesToImprove = 60;
+        public const int k_SourceLevelCount = 3;
+        const int k_SourceJpgQuality = 88;
+        const float k_SourceInterval = 1f / 15f;
+        const int k_SlowFramesToStepDown = 30;
+        const int k_FastFramesToStepUp = 150;
         // How long the hidden host page gets to finish loading before Unity reopens it.
         const float k_HostRetrySeconds = 8f;
 
@@ -41,65 +44,45 @@ namespace CardboardXR.Stereo
         int m_Width = CaptureWidth;
         int m_Height = CaptureHeight;
         float m_RequestedAspect = CaptureAspect;
-        int m_ProfileLevel = k_StartProfile;
-        int m_JpgQuality = 45;
-        float m_FrameInterval = 1f / 8f;
-        int m_LightFrameStreak;
-        float m_LastProfileChange;
+        int m_SourceLevel;
+        int m_SlowStreak;
+        int m_FastStreak;
+        float m_FrameSeconds;
+        byte[] m_Pixels;
 
         public bool IsCasting => m_Casting;
         public Vector2Int FrameSize => new(m_Width, m_Height);
         public float Aspect => m_Width / (float)m_Height;
 
-        // ProfileHeight tall, as wide as the aspect asks, in multiples of 8 for the JPEG encoder.
-        public static Vector2Int FrameSizeFor(float aspect) => FrameSizeFor(aspect, k_StartProfile);
+        // SourceHeight tall, as wide as the aspect asks, in multiples of 16 (H.264 macroblocks).
+        public static Vector2Int FrameSizeFor(float aspect) => FrameSizeFor(aspect, 0);
 
-        public static Vector2Int FrameSizeFor(float aspect, int profileLevel)
+        public static Vector2Int FrameSizeFor(float aspect, int sourceLevel)
         {
             aspect = float.IsNaN(aspect) ? WebRtcCast.DefaultAspect : Mathf.Clamp(aspect, WebRtcCast.MinAspect, WebRtcCast.MaxAspect);
-            var height = ProfileHeight(profileLevel);
-            var width = Mathf.RoundToInt(height * aspect / 8f) * 8;
+            var height = SourceHeight(sourceLevel);
+            var width = Mathf.RoundToInt(height * aspect / 16f) * 16;
             return new Vector2Int(width, height);
         }
 
-        public static int ProfileHeight(int level) => Mathf.Clamp(level, 0, k_ProfileCount - 1) switch
+        public static int SourceHeight(int level) => Mathf.Clamp(level, 0, k_SourceLevelCount - 1) switch
         {
-            0 => 540,
-            1 => 450,
-            2 => 360,
-            3 => 288,
-            _ => 216,
+            0 => 720,
+            1 => 576,
+            _ => 432,
         };
 
-        public static int ProfileQuality(int level) => Mathf.Clamp(level, 0, k_ProfileCount - 1) switch
-        {
-            0 => 55,
-            1 => 50,
-            2 => 45,
-            3 => 40,
-            _ => 35,
-        };
-
-        public static float ProfileInterval(int level) => Mathf.Clamp(level, 0, k_ProfileCount - 1) switch
-        {
-            0 => 1f / 10f,
-            1 => 1f / 9f,
-            2 => 1f / 8f,
-            3 => 1f / 6f,
-            _ => 1f / 5f,
-        };
-
-        // One encoded frame's size votes on the profile: a heavy frame steps down at once
-        // (after the caller's cooldown), a long run of light frames earns one step back up.
+        // The phone's own frame rate votes on the source size: a sustained run of slow frames
+        // steps down (the extra camera pass is what costs), a long healthy run steps back up.
         // Pure, for testing.
-        public static int NextProfileLevel(int currentLevel, int jpgBytes, int lightFrameStreak)
+        public static int NextSourceLevel(int level, int slowStreak, int fastStreak)
         {
-            currentLevel = Mathf.Clamp(currentLevel, 0, k_ProfileCount - 1);
-            if (jpgBytes > k_HeavyFrameBytes)
-                return Mathf.Min(k_ProfileCount - 1, currentLevel + 1);
-            if (jpgBytes < k_LightFrameBytes && lightFrameStreak >= k_LightFramesToImprove)
-                return Mathf.Max(0, currentLevel - 1);
-            return currentLevel;
+            level = Mathf.Clamp(level, 0, k_SourceLevelCount - 1);
+            if (slowStreak >= k_SlowFramesToStepDown)
+                return Mathf.Min(k_SourceLevelCount - 1, level + 1);
+            if (fastStreak >= k_FastFramesToStepUp)
+                return Mathf.Max(0, level - 1);
+            return level;
         }
         public string Room => m_Room;
         public string ViewerUrl => string.IsNullOrEmpty(m_Room) ? "" : WebRtcCast.ViewerUrl(m_Room);
@@ -127,12 +110,11 @@ namespace CardboardXR.Stereo
             m_Room = string.IsNullOrWhiteSpace(room) ? WebRtcCast.NewRoomCode() : room.Trim().ToLowerInvariant();
             m_DisplayWasMono = m_Rig != null && m_Rig.IsMono;
             m_RequestedAspect = float.IsNaN(aspect) ? WebRtcCast.DefaultAspect : Mathf.Clamp(aspect, WebRtcCast.MinAspect, WebRtcCast.MaxAspect);
-            m_ProfileLevel = k_StartProfile;
-            m_JpgQuality = ProfileQuality(m_ProfileLevel);
-            m_FrameInterval = ProfileInterval(m_ProfileLevel);
-            m_LightFrameStreak = 0;
-            m_LastProfileChange = Time.unscaledTime;
-            var size = FrameSizeFor(m_RequestedAspect, m_ProfileLevel);
+            m_SourceLevel = 0;
+            m_SlowStreak = 0;
+            m_FastStreak = 0;
+            m_FrameSeconds = 0f;
+            var size = FrameSizeFor(m_RequestedAspect, m_SourceLevel);
             if (m_Capture != null && (m_Capture.width != size.x || m_Capture.height != size.y))
                 ReleaseCapture();
             m_Width = size.x;
@@ -261,11 +243,14 @@ namespace CardboardXR.Stereo
                 m_Rig.SetMono(m_DisplayWasMono);
             }
 
+            var dt = Time.unscaledDeltaTime;
+            m_FrameSeconds = m_FrameSeconds <= 0f ? dt : Mathf.Lerp(m_FrameSeconds, dt, 0.1f);
+
             if (m_WebView == null || !m_WebView.IsReady || m_CastCamera == null || !m_CastCamera.enabled)
                 return;
             if (Time.unscaledTime < m_NextFrame || m_Reading)
                 return;
-            m_NextFrame = Time.unscaledTime + m_FrameInterval;
+            m_NextFrame = Time.unscaledTime + k_SourceInterval;
             StartCoroutine(PushFrame());
         }
 
@@ -312,69 +297,68 @@ namespace CardboardXR.Stereo
                 yield break;
             }
 
+            Task<string> encode;
             try
             {
                 var prev = RenderTexture.active;
                 RenderTexture.active = m_Capture;
                 m_Readback.ReadPixels(new Rect(0, 0, m_Width, m_Height), 0, 0, false);
-                m_Readback.Apply(false);
                 RenderTexture.active = prev;
 
-                if (!m_Casting)
-                {
-                    m_Reading = false;
-                    yield break;
-                }
+                // ReadPixels fills the CPU copy, which is all the encoder needs: no Apply upload.
+                var raw = m_Readback.GetRawTextureData<byte>();
+                if (m_Pixels == null || m_Pixels.Length != raw.Length)
+                    m_Pixels = new byte[raw.Length];
+                raw.CopyTo(m_Pixels);
 
-                var jpg = m_Readback.EncodeToJPG(m_JpgQuality);
-                m_WebView.PushFrame("data:image/jpeg;base64," + System.Convert.ToBase64String(jpg));
-                AdaptProfile(jpg.Length);
+                // JPEG at 720p costs the main thread a frame; the encoder is thread-safe.
+                var pixels = m_Pixels;
+                var width = (uint)m_Width;
+                var height = (uint)m_Height;
+                encode = Task.Run(() =>
+                {
+                    var jpg = ImageConversion.EncodeArrayToJPG(pixels, GraphicsFormat.R8G8B8A8_UNorm, width, height, 0, k_SourceJpgQuality);
+                    return jpg == null || jpg.Length == 0 ? null : "data:image/jpeg;base64," + Convert.ToBase64String(jpg);
+                });
             }
-            catch (System.Exception e)
+            catch (Exception e)
             {
                 Debug.LogWarning($"[Cast] Frame capture failed: {e.Message}");
+                m_Reading = false;
+                yield break;
             }
+
+            while (!encode.IsCompleted)
+                yield return null;
+
+            if (encode.IsFaulted)
+                Debug.LogWarning($"[Cast] Frame encode failed: {encode.Exception?.GetBaseException().Message}");
+            else if (m_Casting && m_WebView != null && !string.IsNullOrEmpty(encode.Result))
+                m_WebView.PushFrame(encode.Result);
+            AdaptSource();
             m_Reading = false;
         }
 
-        // Keeps the encoded stream inside what a public relay will carry for minutes, not
-        // seconds: heavy frames step the capture down, light streaks earn quality back.
-        void AdaptProfile(int jpgBytes)
+        // The page adapts the stream to the network; this only protects the phone's own frame
+        // rate, since the cast camera is a second full render of the scene.
+        void AdaptSource()
         {
-            if (jpgBytes < k_LightFrameBytes)
-                m_LightFrameStreak++;
-            else
-                m_LightFrameStreak = 0;
-
-            var now = Time.unscaledTime;
-            var next = NextProfileLevel(m_ProfileLevel, jpgBytes, m_LightFrameStreak);
-            if (next != m_ProfileLevel)
-            {
-                if (now - m_LastProfileChange < 1.5f)
-                    return;
-                SetProfileLevel(next);
-                return;
-            }
-
-            // Same size, still heavy: trade JPEG quality before touching the frame again.
-            if (jpgBytes > 30_000 && m_JpgQuality > 32 && now - m_LastProfileChange >= 1.5f)
-            {
-                m_JpgQuality -= 3;
-                m_LastProfileChange = now;
-                Debug.Log($"[Cast] Stream quality → JPEG q{m_JpgQuality} ({jpgBytes / 1000} KB frames)");
-            }
+            var budget = 1f / (Application.targetFrameRate > 0 ? Application.targetFrameRate : 60);
+            m_SlowStreak = m_FrameSeconds > budget * 1.3f ? m_SlowStreak + 1 : 0;
+            m_FastStreak = m_FrameSeconds < budget * 1.1f ? m_FastStreak + 1 : 0;
+            var next = NextSourceLevel(m_SourceLevel, m_SlowStreak, m_FastStreak);
+            if (next != m_SourceLevel)
+                SetSourceLevel(next);
         }
 
-        void SetProfileLevel(int level)
+        void SetSourceLevel(int level)
         {
-            level = Mathf.Clamp(level, 0, k_ProfileCount - 1);
-            if (level == m_ProfileLevel && m_Capture != null)
+            level = Mathf.Clamp(level, 0, k_SourceLevelCount - 1);
+            if (level == m_SourceLevel && m_Capture != null)
                 return;
-            m_ProfileLevel = level;
-            m_JpgQuality = ProfileQuality(level);
-            m_FrameInterval = ProfileInterval(level);
-            m_LightFrameStreak = 0;
-            m_LastProfileChange = Time.unscaledTime;
+            m_SourceLevel = level;
+            m_SlowStreak = 0;
+            m_FastStreak = 0;
 
             var size = FrameSizeFor(m_RequestedAspect, level);
             if (size.x == m_Width && size.y == m_Height && m_Capture != null)
@@ -391,7 +375,7 @@ namespace CardboardXR.Stereo
                 m_CastCamera.aspect = Aspect;
                 m_CastCamera.enabled = m_Casting;
             }
-            Debug.Log($"[Cast] Stream profile → {m_Width}x{m_Height}, JPEG q{m_JpgQuality}, {1f / m_FrameInterval:F0} fps");
+            Debug.Log($"[Cast] Source → {m_Width}x{m_Height} (phone frame {m_FrameSeconds * 1000f:F0} ms)");
         }
 
         void EnsureCapture()

@@ -137,7 +137,6 @@ namespace CardboardXR.Demos.Ascii
                 m_Angels.Caught -= OnCaught;
             m_Rules.Changed -= OnChanged;
             Shader.SetGlobalFloat(k_StoneId, 0f);
-            Shader.SetGlobalFloat("_AsciiThreat", 0f);
         }
 
         void Update()
@@ -356,13 +355,8 @@ namespace CardboardXR.Demos.Ascii
         void UpdateThreat(float now)
         {
             if (m_Angels == null || !m_Angels.HasAngel)
-            {
-                Shader.SetGlobalFloat("_AsciiThreat", 0f);
                 return;
-            }
             var distance = m_Angels.NearestDistance();
-            var threat = m_Angels.Threat();
-            Shader.SetGlobalFloat("_AsciiThreat", threat);
             if (m_Rules.State is AsciiQuizState.Reading or AsciiQuizState.Answering)
             {
                 var near = distance < 2.2f;

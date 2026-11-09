@@ -134,7 +134,7 @@ namespace CardboardXR.Demos.Ascii
             var step = Mathf.Min(m_Speed * Time.deltaTime, distance - k_Reach);
             transform.position += flat.normalized * step;
             var p = transform.position;
-            p.y = m_Head.position.y - 1.55f;
+            p.y = AsciiAngels.GroundY(m_Head.position.y);
             transform.position = p;
         }
 

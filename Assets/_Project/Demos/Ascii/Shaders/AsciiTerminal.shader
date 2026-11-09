@@ -56,9 +56,6 @@ Shader "CardboardXR/Demos/AsciiTerminal"
             float _AsciiVoid;
             // 0 to 1 as the player turns to stone: every glyph drains to gray.
             float _AsciiStone;
-            // 0 far, 1 when an angel is almost on the player: a red pulse in empty void tiles.
-            float _AsciiThreat;
-
             static const float3 k_Light = float3(0.25, 0.9, 0.3);
 
             // The room pass writes one green. Hands and the door are not that hue.
@@ -263,11 +260,6 @@ Shader "CardboardXR/Demos/AsciiTerminal"
                 if (empty)
                 {
                     color = _AsciiVoid > 0.5 ? half3(0, 0, 0) : here;
-                    if (_AsciiVoid > 0.5 && _AsciiThreat > 0.05)
-                    {
-                        float pulse = 0.5 + 0.5 * sin(_Time.y * 9.0);
-                        color = lerp(color, half3(0.35, 0.02, 0.02) * pulse, _AsciiThreat * 0.55);
-                    }
                 }
                 else
                 {
