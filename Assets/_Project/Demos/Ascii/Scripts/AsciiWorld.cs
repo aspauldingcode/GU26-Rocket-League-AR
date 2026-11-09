@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace CardboardXR.Demos.Ascii
 {
@@ -198,6 +199,34 @@ namespace CardboardXR.Demos.Ascii
             Shader.SetGlobalVector(k_DoorRight, new Vector4(right.x, right.y, right.z, DoorWidth / 2f));
             Shader.SetGlobalVector(k_DoorUp, new Vector4(up.x, up.y, up.z, OpenHeight));
             Shader.SetGlobalVector(k_DoorNormal, m_World.forward);
+        }
+
+        void OnEnable() => RenderPipelineManager.beginCameraRendering += CullThroughDoor;
+
+        void OnDisable()
+        {
+            RenderPipelineManager.beginCameraRendering -= CullThroughDoor;
+            AsciiPortalCulling.Reset();
+        }
+
+        // Per camera, as it renders: each eye and the cast camera see the doorway differently.
+        void CullThroughDoor(ScriptableRenderContext context, Camera camera)
+        {
+            if (m_World == null)
+            {
+                AsciiPortalCulling.Reset();
+                return;
+            }
+            var door = new AsciiPortalCulling.Door
+            {
+                center = m_World.position,
+                right = m_World.right,
+                up = m_World.up,
+                normal = m_World.forward,
+                halfWidth = DoorWidth / 2f,
+                height = OpenHeight,
+            };
+            AsciiPortalCulling.Apply(camera, !IsInside, door);
         }
 
         void SetInside(bool inside, bool announce)

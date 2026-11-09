@@ -65,8 +65,10 @@ namespace CardboardXR.Demos.Ascii
                 if (filter == null)
                     continue;
                 var renderer = filter.GetComponent<MeshRenderer>();
-                if (renderer != null)
-                    renderer.enabled = false;
+                if (renderer == null)
+                    continue;
+                renderer.enabled = false;
+                AsciiPortalCulling.Remove(renderer);
             }
         }
 
@@ -94,7 +96,10 @@ namespace CardboardXR.Demos.Ascii
                 m_Block.SetFloat(k_Figure, 0f);
                 renderer.SetPropertyBlock(m_Block);
                 if (!renderer.enabled)
+                {
                     renderer.enabled = true;
+                    AsciiPortalCulling.Add(renderer);
+                }
             }
         }
 

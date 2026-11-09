@@ -217,6 +217,7 @@ namespace CardboardXR.Demos.Ascii
             renderer.sharedMaterial = m_Material;
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
+            AsciiPortalCulling.Add(renderer);
             return filter;
         }
 

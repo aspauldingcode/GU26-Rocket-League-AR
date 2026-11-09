@@ -40,6 +40,10 @@ namespace CardboardXR.Demos.Ascii
             var cameraType = renderingData.cameraData.cameraType;
             if (cameraType == CameraType.Preview || cameraType == CameraType.Reflection)
                 return;
+            // Outside the gate with the doorway out of this camera's view: the pass would only
+            // copy the screen and return it unchanged.
+            if (AsciiPortalCulling.SkipsTerminal(renderingData.cameraData.camera))
+                return;
             m_Pass.renderPassEvent = RenderPassEvent.BeforeRenderingTransparents;
             m_Pass.requiresIntermediateTexture = true;
             m_Pass.ConfigureInput(ScriptableRenderPassInput.Depth);
