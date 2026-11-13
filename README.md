@@ -1,5 +1,5 @@
 # ASCII Rooms
-Third place winner in Gonzaga Univerity's 2026 ACM Hackathon
+Third place winner in Gonzaga University's 2026 ACM Hackathon
 ## Rocket League GU Hackathon 2026 Submission
 Weeping angels chase you while you frantically solve math problems in an ASCII Hellscape.
 
